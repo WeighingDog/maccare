@@ -397,6 +397,20 @@ final class AppModel {
         actionableCategories.filter { selectedForCleanup.contains($0.id) && isSelectable($0) }
     }
 
+    /// Etichetta del pulsante di pulizia: mai "0 byte" quando la stima la fornisce uno strumento.
+    var cleanButtonTitle: String {
+        guard !selectedCategories.isEmpty else { return "Pulisci" }
+        let bytes = selectedEstimateBytes
+        let toolEstimated = selectedCategories.filter {
+            if case .determinedByTool = estimate(for: $0) { true } else { false }
+        }
+        switch (bytes > 0, toolEstimated.isEmpty) {
+        case (true, true): return "Pulisci \(bytes.formattedBytes)"
+        case (true, false): return "Pulisci \(bytes.formattedBytes) + \(toolEstimated.map(\.toolName).joined(separator: ", "))"
+        default: return "Pulisci"
+        }
+    }
+
     var selectedEstimateBytes: Int64 {
         selectedCategories.compactMap { estimate(for: $0).bytes }.reduce(0, +)
     }

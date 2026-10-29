@@ -147,6 +147,15 @@ struct CleanupCategory: Identifiable, Sendable, Hashable {
     let locations: [LocationSpec]
     let action: CategoryAction
 
+    /// Nome breve dello strumento che stima lo spazio (per le azioni basate su comandi ufficiali).
+    var toolName: String {
+        switch action {
+        case .pnpmStorePrune: "pnpm"
+        case .simctlDeleteUnavailable: "simulatori"
+        default: title
+        }
+    }
+
     var cleanableLocations: [LocationSpec] {
         locations.filter { $0.kind.ruleID != nil }
     }

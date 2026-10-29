@@ -199,7 +199,7 @@ private struct ResultsState: View {
             Button {
                 model.requestCleaning()
             } label: {
-                Text(count == 0 ? "Pulisci" : "Pulisci \(model.selectedEstimateBytes.formattedBytes)")
+                Text(model.cleanButtonTitle)
                     .monospacedDigit()
                     .frame(minWidth: 120)
             }

@@ -51,6 +51,15 @@ enum DebugAutomation {
                 model.selectedForCleanup = []
             }
 
+            // Etichetta del pulsante con stime fornite da pnpm.
+            model.selectedForCleanup = [.pnpmStore]
+            try? await Task.sleep(for: .seconds(0.6))
+            capture(directory, "21b-selected-pnpm")
+            model.selectedForCleanup = [.pnpmStore, .appCaches]
+            try? await Task.sleep(for: .seconds(0.6))
+            capture(directory, "21c-selected-pnpm-caches")
+            model.selectedForCleanup = []
+
             // Stato "esito" con dati d'esempio (solo per l'istantanea: nessuna pulizia, nessun registro).
             model.presentedSummary = CleanupSummary(
                 startedAt: .now.addingTimeInterval(-12), finishedAt: .now, method: .moveToTrash,
