@@ -160,6 +160,23 @@ struct CleanupManagerTests {
         #expect(summary.outcomes.first?.status == .skipped)
     }
 
+    @Test("Un elemento che contiene MacCare in esecuzione viene saltato")
+    func skipsItemContainingRunningApp() async throws {
+        try home.write("Library/Developer/Xcode/DerivedData/MacCare-abc/Build/Products/Debug/MacCare.app/Contents/MacOS/MacCare")
+        try home.write("Library/Developer/Xcode/DerivedData/Other-def/a.o")
+        let runningApp = home.path("Library/Developer/Xcode/DerivedData/MacCare-abc/Build/Products/Debug/MacCare.app").path
+        let manager = CleanupManager(policy: policy, probe: StubProbe.idle, logger: OperationLogger(fileURL: logURL), runningAppBundlePath: runningApp)
+        let summary = await manager.execute(plan([
+            item("Library/Developer/Xcode/DerivedData/MacCare-abc"),
+            item("Library/Developer/Xcode/DerivedData/Other-def"),
+        ]))
+        let outcome = try #require(summary.outcomes.first)
+        #expect(outcome.status == .partial)
+        #expect(outcome.skipped.first?.reason == "Contiene MacCare in esecuzione")
+        #expect(home.exists("Library/Developer/Xcode/DerivedData/MacCare-abc/Build/Products/Debug/MacCare.app/Contents/MacOS/MacCare"))
+        #expect(!home.exists("Library/Developer/Xcode/DerivedData/Other-def"))
+    }
+
     @Test("Stato aggregato della categoria")
     func statusAggregation() {
         #expect(CleanupManager.status(processed: 3, skipped: 0, errors: 0) == .completed)

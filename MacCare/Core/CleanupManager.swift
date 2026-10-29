@@ -132,6 +132,8 @@ actor CleanupManager {
     private let scanner: StorageScanner
     private let commandRunner: @Sendable (AllowedCommand, URL, [String: String]?, URL?, Duration) async throws -> CommandResult
     private let allowSimulatorMaintenance: @Sendable () -> Bool
+    /// Percorso del bundle di MacCare in esecuzione: mai rimosso (es. build avviata da Xcode in DerivedData).
+    private let runningAppBundlePath: String
 
     /// Numero massimo di voci di dettaglio (salti/errori) registrate per categoria.
     private let maxDetailEntries = 25
@@ -145,7 +147,8 @@ actor CleanupManager {
         commandRunner: @escaping @Sendable (AllowedCommand, URL, [String: String]?, URL?, Duration) async throws -> CommandResult = { command, executable, env, cwd, timeout in
             try await CommandRunner.run(command, executable: executable, environment: env, currentDirectory: cwd, timeout: timeout)
         },
-        allowSimulatorMaintenance: @escaping @Sendable () -> Bool = { false }
+        allowSimulatorMaintenance: @escaping @Sendable () -> Bool = { false },
+        runningAppBundlePath: String = Bundle.main.bundleURL.resolvingSymlinksInPath().path
     ) {
         self.policy = policy
         self.remover = remover
@@ -154,6 +157,7 @@ actor CleanupManager {
         self.scanner = scanner
         self.commandRunner = commandRunner
         self.allowSimulatorMaintenance = allowSimulatorMaintenance
+        self.runningAppBundlePath = PathTools.realPath(runningAppBundlePath) ?? runningAppBundlePath
     }
 
     func execute(_ plan: CleanupPlan, progress: @escaping @Sendable (CleanupProgress) -> Void = { _ in }) async -> CleanupSummary {
@@ -240,14 +244,21 @@ actor CleanupManager {
                 continue
             }
 
-            // 2. Ispezione del contenuto: repository Git, archivi, credenziali, elementi non leggibili.
+            // 2. L'elemento non deve contenere MacCare stessa (es. build di Debug dentro DerivedData).
+            let targetPath = PathTools.realPath(target.url.path) ?? target.url.path
+            if StorageMath.isPath(runningAppBundlePath, insideOrEqualTo: targetPath) {
+                outcome.skipped.append(SkippedItem(name: item.displayName, reason: "Contiene MacCare in esecuzione"))
+                continue
+            }
+
+            // 3. Ispezione del contenuto: repository Git, archivi, credenziali, elementi non leggibili.
             let inspection = remover.inspect(target)
             if let reason = inspection.uncertaintyReason {
                 outcome.skipped.append(SkippedItem(name: item.displayName, reason: reason))
                 continue
             }
 
-            // 3. Rimozione.
+            // 4. Rimozione.
             switch method {
             case .moveToTrash:
                 do {
