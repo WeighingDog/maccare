@@ -1,379 +1,200 @@
-import Charts
 import SwiftUI
 
+/// Panoramica: disco, riepilogo delle sei misure e consigli di pulizia.
 struct StorageDashboardView: View {
     @Environment(AppModel.self) private var model
-    var scrollable = true
 
     var body: some View {
-        PageContainer(scrollable: scrollable) {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                PageHeader("Panoramica", subtitle: subtitle)
+        Form {
+            Section {
+                VolumeRow()
+            }
 
-                if model.isScanning {
-                    ScanProgressCard()
-                        .transition(.opacity)
-                } else if !model.hasScanned {
-                    FirstScanCard()
-                }
-
-                if case .failed(let message) = model.scanPhase {
-                    InlineNotice(text: "Scansione non riuscita: \(message)", style: .error)
-                } else if model.scanPhase == .cancelled {
-                    InlineNotice(text: "Scansione annullata. I dati mostrati provengono dall'ultima scansione completata.", style: .warning)
-                }
-
-                if let volume = model.volume {
-                    VolumeCard(volume: volume)
-                }
-
-                if model.hasScanned {
-                    MetricsGrid()
-                    DistributionCard()
-                    TopCategoriesCard()
+            if model.isScanning {
+                Section { ScanProgressRow() }
+            } else if !model.hasScanned {
+                Section {
+                    FirstScanRow()
                 }
             }
-            .pageLayout()
-            .animation(.default, value: model.scanPhase)
+
+            if case .failed(let message) = model.scanPhase {
+                Section { StatusText(text: "Analisi non riuscita: \(message)", style: .error) }
+            } else if model.scanPhase == .cancelled {
+                Section { StatusText(text: "Analisi interrotta: i dati sono quelli dell'ultima analisi completa.", style: .warning) }
+            }
+
+            if model.hasScanned {
+                SummarySection()
+                RecommendationsSection()
+            }
         }
+        .formStyle(.grouped)
         .navigationTitle("Panoramica")
-    }
-
-    private var subtitle: String {
-        if let date = model.lastScanDate {
-            return "Ultima scansione \(date.relativeDescription)"
-        }
-        return "Analisi dello spazio su disco"
+        .navigationSubtitle(model.lastScanDate.map { "Analizzato \($0.relativeDescription)" } ?? "")
     }
 }
 
-/// Stato vuoto iniziale: nessun valore storico, solo l'invito alla prima scansione.
-private struct FirstScanCard: View {
+private struct VolumeRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "internaldrive")
-                .font(.system(size: 44, weight: .light))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            VStack(spacing: Spacing.xxs) {
-                Text("Nessuna scansione eseguita")
-                    .font(.title2.weight(.semibold))
-                Text("MacCare calcola le dimensioni reali di questo Mac in sola lettura. Nessun file viene modificato durante l'analisi.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 460)
+        if let volume = model.volume {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(volume.name).font(.headline)
+                    Spacer()
+                    Text("\(volume.usedBytes.formattedBytes) di \(volume.totalBytes.formattedBytes) utilizzati")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                StorageBar(segments: segments(volume), totalBytes: volume.totalBytes)
+                StorageLegend(segments: segments(volume))
             }
-            Button {
-                model.startScan()
-            } label: {
-                Label("Avvia scansione", systemImage: "magnifyingglass")
-                    .padding(.horizontal, Spacing.xs)
-            }
-            .actionButtonStyle(.primary)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
+            .padding(.vertical, Spacing.xxs)
         }
-        .frame(maxWidth: .infinity)
-        .padding(Spacing.xxl)
-        .glassSurface(tint: .accentColor)
     }
-}
 
-private struct VolumeCard: View {
-    @Environment(AppModel.self) private var model
-    let volume: VolumeSnapshot
-
-    private var segments: [UsageBar.Segment] {
-        let protected = model.protectedBytes
+    private func segments(_ volume: VolumeSnapshot) -> [StorageBar.Segment] {
+        guard model.hasScanned else {
+            return [.init(id: "used", title: "Utilizzato", bytes: volume.usedBytes, color: .gray)]
+        }
         let recoverable = model.recoverableBytes
-        let analyzedOther = max(0, model.analyzedBytes - protected - recoverable)
-        let otherUsed = max(0, volume.usedBytes - model.analyzedBytes)
+        let protected = model.protectedBytes
+        let other = max(0, model.analyzedBytes - recoverable - protected)
         return [
-            .init(id: "recoverable", title: "Potenzialmente recuperabile", bytes: model.hasScanned ? recoverable : 0, color: .green),
-            .init(id: "protected", title: "Dati protetti analizzati", bytes: model.hasScanned ? protected : 0, color: .orange),
-            .init(id: "analyzed", title: "Altro analizzato", bytes: model.hasScanned ? analyzedOther : 0, color: .blue),
-            .init(id: "other", title: model.hasScanned ? "Non analizzato" : "Utilizzato", bytes: model.hasScanned ? otherUsed : volume.usedBytes, color: .gray),
+            .init(id: "recoverable", title: "Recuperabile", bytes: recoverable, color: .green),
+            .init(id: "protected", title: "Protetto", bytes: protected, color: .orange),
+            .init(id: "analyzed", title: "Altro analizzato", bytes: other, color: .blue),
+            .init(id: "rest", title: "Non analizzato", bytes: max(0, volume.usedBytes - model.analyzedBytes), color: .gray),
         ]
     }
+}
+
+private struct FirstScanRow: View {
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        SectionCard(volume.name, symbol: "internaldrive", tint: .accentColor) {
-            Text("\(volume.totalBytes.formattedBytes) totali")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        } content: {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                UsageBar(segments: segments + [.init(id: "free", title: "Disponibile", bytes: volume.availableBytes, color: Color(nsColor: .tertiaryLabelColor).opacity(0.25))])
+        HStack(spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Nessuna analisi")
+                Text("L'analisi legge solo le dimensioni: nessun file viene modificato.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Analizza") { model.startScan() }
+                .actionButtonStyle(.primary)
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+}
 
-                Grid(alignment: .leading, horizontalSpacing: Spacing.xl, verticalSpacing: Spacing.xs) {
-                    GridRow {
-                        legend("Utilizzato", volume.usedBytes, color: .primary)
-                        legend("Disponibile", volume.availableBytes, color: .secondary)
-                        if volume.purgeableBytes > 0 {
-                            legend("di cui eliminabile da macOS", volume.purgeableBytes, color: .secondary)
-                        }
+/// Le sei misure richieste, ciascuna su una riga.
+private struct SummarySection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Section("Riepilogo") {
+            row("Spazio analizzato", "chart.pie.fill", .blue, model.analyzedBytes.formattedBytes)
+            row("Potenzialmente recuperabile", "leaf.fill", .green, model.recoverableBytes.formattedBytes)
+            row("Recuperato in questa sessione", "checkmark.seal.fill", .mint, recoveredText)
+            row("Dati protetti", "lock.fill", .orange, model.protectedBytes.formattedBytes)
+            NavigationLink {
+                UnanalyzableList()
+            } label: {
+                LabeledContent {
+                    Text("\(model.unanalyzableCount)").monospacedDigit()
+                } label: {
+                    CategoryLabel(title: "Non analizzabili", subtitle: nil, symbol: "eye.slash.fill", tint: .gray)
+                }
+            }
+            .disabled(model.unanalyzableCount == 0)
+            Button {
+                model.selection = .cleanup
+            } label: {
+                LabeledContent {
+                    Text("\(model.pendingConfirmationCount)").monospacedDigit()
+                } label: {
+                    CategoryLabel(title: "In attesa di conferma", subtitle: nil, symbol: "hourglass", tint: .yellow)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var recoveredText: String {
+        var text = model.sessionFreedBytes.formattedBytes
+        if model.sessionTrashedBytes > 0 { text += " · \(model.sessionTrashedBytes.formattedBytes) nel Cestino" }
+        return text
+    }
+
+    private func row(_ title: String, _ symbol: String, _ tint: Color, _ value: String) -> some View {
+        LabeledContent {
+            Text(value).monospacedDigit()
+        } label: {
+            CategoryLabel(title: title, subtitle: nil, symbol: symbol, tint: tint)
+        }
+    }
+}
+
+/// Categorie con un'azione, ordinate per stima: come i "Consigli" di Impostazioni › Spazio.
+private struct RecommendationsSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let categories = model.actionableCategories.sorted {
+            (model.estimate(for: $0).bytes ?? 0) > (model.estimate(for: $1).bytes ?? 0)
+        }
+        Section("Consigli") {
+            ForEach(categories) { category in
+                NavigationLink(value: category.id) {
+                    LabeledContent {
+                        Text(model.estimateText(for: category)).monospacedDigit()
+                    } label: {
+                        let status = model.statusLine(for: category)
+                        CategoryLabel(title: category.title, subtitle: status.text, symbol: category.symbol, tint: category.id.tint, subtitleStyle: status.color)
                     }
                 }
+            }
+        }
+    }
+}
 
-                if model.hasScanned {
-                    Divider()
-                    HStack(spacing: Spacing.lg) {
-                        ForEach(segments.filter { $0.bytes > 0 }) { segment in
-                            HStack(spacing: Spacing.xs) {
-                                Circle().fill(segment.color).frame(width: 8, height: 8).accessibilityHidden(true)
-                                Text(segment.title).foregroundStyle(.secondary)
-                                Text(segment.bytes.formattedBytes).monospacedDigit()
+/// Percorsi con accesso negato o letti in parte.
+struct UnanalyzableList: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(model.categories) { category in
+                    ForEach(model.unanalyzableLocations(in: category)) { location in
+                        LabeledContent {
+                            Text(stateText(location))
+                                .foregroundStyle(.orange)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(location.title)
+                                Text(location.path.abbreviatingHome(model.policy.home))
+                                    .font(.callout.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
                             }
-                            .font(.caption)
-                            .accessibilityElement(children: .combine)
                         }
                     }
                 }
+            } footer: {
+                Text("macOS protegge alcuni dati (privacy, dati di altre app). Per misurarli puoi concedere a MacCare l'Accesso completo al disco nelle Impostazioni di Sistema.")
             }
         }
+        .formStyle(.grouped)
+        .navigationTitle("Non analizzabili")
     }
 
-    private func legend(_ title: String, _ bytes: Int64, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(bytes.formattedBytes)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(color)
-                .monospacedDigit()
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Le sei misure distinte richieste: occupato, recuperabile, recuperato, protetto, non analizzabile, in attesa.
-private struct MetricsGrid: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        GlassGroup {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Spacing.md)], spacing: Spacing.md) {
-                StatTile(
-                    title: "Spazio analizzato",
-                    value: model.analyzedBytes.formattedBytes,
-                    caption: "Occupato dalle cartelle esaminate, senza doppi conteggi.",
-                    symbol: "chart.pie",
-                    tint: .blue
-                )
-                StatTile(
-                    title: "Potenzialmente recuperabile",
-                    value: model.recoverableBytes.formattedBytes,
-                    caption: "Stima delle sole categorie autorizzate. Non è garantito.",
-                    symbol: "leaf",
-                    tint: .green
-                )
-                StatTile(
-                    title: "Recuperato",
-                    value: model.sessionFreedBytes.formattedBytes,
-                    caption: recoveredCaption,
-                    symbol: "checkmark.seal",
-                    tint: .mint
-                )
-                StatTile(
-                    title: "Dati protetti",
-                    value: model.protectedBytes.formattedBytes,
-                    caption: "Misurati ma mai modificati (WhatsApp, archivi, SDK…).",
-                    symbol: "lock.shield",
-                    tint: .orange
-                )
-                StatTile(
-                    title: "Non analizzabili",
-                    value: "\(model.unanalyzableCount)",
-                    caption: model.unanalyzableCount == 0 ? "Tutti i percorsi sono stati letti." : "Percorsi con accesso negato o letti in parte.",
-                    symbol: "eye.slash",
-                    tint: .gray
-                )
-                StatTile(
-                    title: "In attesa di conferma",
-                    value: "\(model.pendingConfirmationCount)",
-                    caption: "Categorie selezionate per la pulizia non ancora confermate.",
-                    symbol: "hourglass",
-                    tint: .yellow
-                )
-            }
-        }
-    }
-
-    private var recoveredCaption: String {
-        var parts = ["In questa sessione"]
-        if model.sessionTrashedBytes > 0 { parts.append("\(model.sessionTrashedBytes.formattedBytes) nel Cestino") }
-        if model.allTimeFreedBytes > 0 { parts.append("\(model.allTimeFreedBytes.formattedBytes) dall'inizio") }
-        return parts.joined(separator: " · ")
-    }
-}
-
-/// Distribuzione dello spazio analizzato fra le cartelle principali (non sovrapposte).
-private struct DistributionCard: View {
-    @Environment(AppModel.self) private var model
-
-    struct Slice: Identifiable {
-        let id: String
-        let title: String
-        let bytes: Int64
-        let color: Color
-    }
-
-    private var slices: [Slice] {
-        var titleForPath: [String: (String, Color)] = [:]
-        for category in model.categories {
-            for location in category.locations where titleForPath[location.path] == nil {
-                titleForPath[location.path] = (location.title, category.id.tint)
-            }
-        }
-        let maximal = StorageMath.maximalPaths(Array(titleForPath.keys).filter { model.measurements[$0]?.state.isMeasured == true })
-        let sorted = maximal
-            .compactMap { path -> Slice? in
-                guard let bytes = model.measurements[path]?.allocatedBytes, bytes > 0, let info = titleForPath[path] else { return nil }
-                return Slice(id: path, title: info.0, bytes: bytes, color: info.1)
-            }
-            .sorted { $0.bytes > $1.bytes }
-        guard sorted.count > 7 else { return sorted }
-        let rest = sorted.dropFirst(7).reduce(0) { $0 + $1.bytes }
-        return Array(sorted.prefix(7)) + [Slice(id: "other", title: "Altre cartelle", bytes: rest, color: .gray)]
-    }
-
-    var body: some View {
-        let data = slices
-        SectionCard("Distribuzione dello spazio analizzato", symbol: "chart.pie", tint: .accentColor) {
-            HStack(alignment: .center, spacing: Spacing.xl) {
-                Chart(data) { slice in
-                    SectorMark(
-                        angle: .value("Spazio", slice.bytes),
-                        innerRadius: .ratio(0.62),
-                        angularInset: 1.5
-                    )
-                    .cornerRadius(4)
-                    .foregroundStyle(slice.color.gradient)
-                    .accessibilityLabel(slice.title)
-                    .accessibilityValue(slice.bytes.formattedBytes)
-                }
-                .chartLegend(.hidden)
-                .frame(width: 180, height: 180)
-                .overlay {
-                    VStack(spacing: 0) {
-                        Text(model.analyzedBytes.formattedBytes)
-                            .font(.title3.weight(.semibold))
-                            .monospacedDigit()
-                        Text("analizzati")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityHidden(true)
-                }
-
-                Grid(alignment: .leading, horizontalSpacing: Spacing.md, verticalSpacing: Spacing.xs) {
-                    ForEach(data) { slice in
-                        GridRow {
-                            Circle().fill(slice.color).frame(width: 8, height: 8).accessibilityHidden(true)
-                            Text(slice.title)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text(slice.bytes.formattedBytes)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                                .gridColumnAlignment(.trailing)
-                        }
-                        .font(.callout)
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-            }
-            Text("Le cartelle annidate (es. DerivedData dentro ~/Library/Developer) sono conteggiate una sola volta.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct TopCategoriesCard: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let actionable = model.actionableCategories.sorted { model.size(of: $0) > model.size(of: $1) }
-        let maxSize = max(1, actionable.map { model.size(of: $0) }.max() ?? 1)
-        SectionCard("Categorie di pulizia", symbol: "sparkles", tint: .green) {
-            Button("Vai a Pulizia") { model.selection = .cleanup }
-                .actionButtonStyle(.secondary)
-                .controlSize(.small)
-        } content: {
-            VStack(spacing: Spacing.xxs) {
-                ForEach(actionable) { category in
-                    NavigationLink(value: category.id) {
-                        CategoryRow(category: category, maxSize: maxSize)
-                    }
-                    .buttonStyle(.plain)
-                    if category.id != actionable.last?.id { Divider() }
-                }
-            }
-        }
-    }
-}
-
-/// Riga di categoria: icona, titolo, dimensione, stima e livello di sicurezza.
-struct CategoryRow: View {
-    @Environment(AppModel.self) private var model
-    let category: CleanupCategory
-    var maxSize: Int64 = 1
-
-    var body: some View {
-        let size = model.size(of: category)
-        HStack(spacing: Spacing.sm) {
-            CategoryIcon(symbol: category.symbol, tint: category.id.tint)
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                HStack(spacing: Spacing.xs) {
-                    Text(category.title).font(.body.weight(.medium))
-                    if model.isPartiallyMeasured(category) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.caption)
-                            .help("Alcuni elementi non sono leggibili: la misura è parziale.")
-                            .accessibilityLabel("Misura parziale")
-                    }
-                }
-                Text(category.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                SizeBar(fraction: Double(size) / Double(maxSize), tint: category.id.tint)
-                    .frame(maxWidth: 260)
-            }
-            Spacer(minLength: Spacing.sm)
-            VStack(alignment: .trailing, spacing: Spacing.xxs) {
-                Text(size.formattedBytes)
-                    .font(.body.weight(.semibold))
-                    .monospacedDigit()
-                Text(estimateText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            SafetyBadge(level: category.safety, compact: true)
-                .frame(minWidth: 120, alignment: .trailing)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
-        }
-        .padding(.vertical, Spacing.xs)
-        .contentShape(.rect)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Apre il dettaglio della categoria")
-    }
-
-    private var estimateText: String {
-        switch model.estimate(for: category) {
-        case .bytes(let bytes): "Stima: \(bytes.formattedBytes)"
-        case .determinedByTool(let text): text
-        case .none: category.action.isDestructive ? "Solo analisi" : "Nessuna azione"
-        }
+    private func stateText(_ location: LocationSpec) -> String {
+        guard let measurement = model.measurement(for: location) else { return "—" }
+        if case .denied = measurement.state { return "Accesso negato" }
+        return "\(measurement.unreadableCount.formatted()) elementi non leggibili"
     }
 }

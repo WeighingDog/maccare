@@ -45,7 +45,7 @@ struct ActivityView: View {
                 ContentUnavailableView {
                     Label("Nessuna attività", systemImage: "clock.arrow.circlepath")
                 } description: {
-                    Text("Scansioni e pulizie verranno registrate qui con i loro esiti. Il registro contiene solo metadati operativi.")
+                    Text("Analisi e pulizie compariranno qui.")
                 }
             } else if entries.isEmpty {
                 ContentUnavailableView.search(text: searchText)
@@ -126,11 +126,7 @@ private struct OutcomeLabel: View {
 
     var body: some View {
         Text(outcome.title)
-            .font(.caption.weight(.semibold))
             .foregroundStyle(tint)
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.14), in: .capsule)
     }
 
     private var tint: Color {

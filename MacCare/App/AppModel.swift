@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case overview, analysis, cleanup, development, activity
@@ -90,7 +91,15 @@ final class AppModel {
     private let probe: any RunningSoftwareProbe = SystemRunningSoftwareProbe()
 
     // Navigazione
-    var selection: SidebarItem? = .overview
+    var selection: SidebarItem? = .overview {
+        didSet { if selection != oldValue { detailPath = NavigationPath() } }
+    }
+    /// Percorso di navigazione del dettaglio (categorie aperte).
+    var detailPath = NavigationPath()
+
+    func openCategory(_ id: CategoryID) {
+        detailPath.append(id)
+    }
 
     // Scansione
     private(set) var categories: [CleanupCategory] = []

@@ -3,26 +3,38 @@ import SwiftUI
 /// Foglio unico del flusso di pulizia: riepilogo → avanzamento → esito.
 struct CleanupFlowSheet: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    var scrollable = true
 
     var body: some View {
         Group {
             if case .running(let progress) = model.cleanupPhase {
                 CleanupProgressView(progress: progress)
             } else if model.reviewPlan != nil {
-                CleanupReviewView(scrollable: scrollable)
+                CleanupReviewView()
             } else if let summary = model.lastSummary {
                 CleanupSummaryView(summary: summary)
             } else {
                 ContentUnavailableView("Nessuna operazione", systemImage: "sparkles")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Chiudi") { dismiss() } }
-                    }
             }
         }
-        .frame(minWidth: 640, idealWidth: 720, minHeight: 520, idealHeight: 640)
+        .frame(minWidth: 560, idealWidth: 620, minHeight: 460, idealHeight: 560)
         .interactiveDismissDisabled(model.isCleaning)
+    }
+}
+
+/// Barra inferiore standard dei fogli: informazioni a sinistra, azioni a destra.
+private struct SheetFooter<Leading: View, Actions: View>: View {
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(spacing: Spacing.sm) {
+            leading
+            Spacer()
+            actions
+        }
+        .padding(Spacing.lg)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
@@ -32,36 +44,36 @@ private struct CleanupReviewView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsExecution = false
-    var scrollable = true
 
     var body: some View {
-        @Bindable var model = model
         VStack(spacing: 0) {
-            PageContainer(scrollable: scrollable) {
-                VStack(alignment: .leading, spacing: Spacing.lg) {
-                    VStack(alignment: .leading, spacing: Spacing.xxs) {
-                        Text("Riepilogo della pulizia")
-                            .font(.title.weight(.bold))
-                            .accessibilityAddTraits(.isHeader)
-                        Text("Conferma esplicitamente ogni categoria. Le categorie non confermate verranno saltate.")
-                            .foregroundStyle(.secondary)
-                    }
-                    if let plan = model.reviewPlan {
-                        InlineNotice(text: "Metodo: \(plan.method.title). \(plan.method.explanation)", style: plan.method == .deletePermanently ? .warning : .info)
-                        InlineNotice(text: "Prima di ogni elemento MacCare ricontrolla percorso, regola, collegamenti simbolici, volume e processi in uso: in caso di dubbio l'elemento viene saltato.")
-                    }
-                    if let plan = model.reviewPlan {
-                        ForEach(plan.categories.indices, id: \.self) { index in
-                            if let binding = confirmationBinding(index) {
-                                ReviewCategoryCard(plan: plan.categories[index], isConfirmed: binding)
-                            }
-                        }
+            Form {
+                Section {
+                    LabeledContent("Metodo", value: model.reviewPlan?.method.title ?? "—")
+                } header: {
+                    Text("Riepilogo della pulizia").font(.headline)
+                } footer: {
+                    Text(model.reviewPlan?.method.explanation ?? "")
+                }
+                if let plan = model.reviewPlan {
+                    ForEach(plan.categories.indices, id: \.self) { index in
+                        ReviewSection(plan: plan.categories[index], isConfirmed: confirmation(index))
                     }
                 }
-                .padding(Spacing.xl)
             }
-            Divider()
-            footer
+            .formStyle(.grouped)
+
+            SheetFooter {
+                Text("\(confirmedCount) di \(model.reviewPlan?.categories.count ?? 0) confermate")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            } actions: {
+                Button("Annulla", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Pulisci…", role: .destructive) { confirmsExecution = true }
+                    .actionButtonStyle(.primary)
+                    .disabled(confirmedCount == 0)
+            }
         }
         .confirmationDialog(confirmationTitle, isPresented: $confirmsExecution) {
             Button(model.reviewPlan?.method == .deletePermanently ? "Elimina definitivamente" : "Sposta nel Cestino", role: .destructive) {
@@ -73,130 +85,79 @@ private struct CleanupReviewView: View {
         }
     }
 
-    private func confirmationBinding(_ index: Int) -> Binding<Bool>? {
-        guard let plan = model.reviewPlan, plan.categories.indices.contains(index) else { return nil }
-        return Binding(
-            get: { model.reviewPlan?.categories[index].isConfirmed ?? false },
-            set: { model.reviewPlan?.categories[index].isConfirmed = $0 }
+    private func confirmation(_ index: Int) -> Binding<Bool> {
+        Binding(
+            get: { model.reviewPlan?.categories[safe: index]?.isConfirmed ?? false },
+            set: { value in
+                guard model.reviewPlan?.categories.indices.contains(index) == true else { return }
+                model.reviewPlan?.categories[index].isConfirmed = value
+            }
         )
     }
 
     private var confirmedCount: Int { model.reviewPlan?.confirmedCategories.count ?? 0 }
 
     private var confirmationTitle: String {
-        "Eseguire la pulizia di \(confirmedCount) \(confirmedCount == 1 ? "categoria" : "categorie")?"
+        "Pulire \(confirmedCount) \(confirmedCount == 1 ? "categoria" : "categorie")?"
     }
 
     private var confirmationMessage: String {
         guard let plan = model.reviewPlan else { return "" }
         let estimate = plan.confirmedCategories.compactMap(\.estimatedBytes).reduce(0, +)
-        var text = "Stima: \(estimate.formattedBytes)."
-        text += plan.method == .deletePermanently ? " L'operazione non può essere annullata." : " Potrai recuperare gli elementi dal Cestino."
+        var text = "Circa \(estimate.formattedBytes). "
+        text += plan.method == .deletePermanently ? "L'operazione non può essere annullata." : "Gli elementi resteranno nel Cestino."
         let skipped = plan.categories.count - confirmedCount
-        if skipped > 0 { text += " \(skipped) categorie non confermate verranno saltate." }
+        if skipped > 0 { text += " \(skipped) non confermate verranno saltate." }
         return text
-    }
-
-    private var footer: some View {
-        HStack {
-            Button("Annulla", role: .cancel) { dismiss() }
-                .keyboardShortcut(.cancelAction)
-            Spacer()
-            Text("\(confirmedCount) di \(model.reviewPlan?.categories.count ?? 0) confermate")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            Button(role: .destructive) {
-                confirmsExecution = true
-            } label: {
-                Text("Esegui pulizia…")
-            }
-            .actionButtonStyle(.primary)
-            .disabled(confirmedCount == 0)
-        }
-        .padding(Spacing.lg)
     }
 }
 
-private struct ReviewCategoryCard: View {
+private struct ReviewSection: View {
     let plan: CategoryPlan
     @Binding var isConfirmed: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack(alignment: .firstTextBaseline) {
-                CategoryIcon(symbol: plan.category.symbolFallback, tint: plan.category.tint, size: 28)
-                Text(plan.title).font(.headline)
-                Spacer()
-                Text(plan.estimatedBytes.map { $0.formattedBytes } ?? "Stima dello strumento")
-                    .font(.headline)
-                    .monospacedDigit()
-            }
-            operationDetail
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(plan.risks, id: \.self) { risk in
-                    Label(risk, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Toggle(isOn: $isConfirmed) {
-                Text("Confermo la pulizia di «\(plan.title)»")
-                    .font(.callout.weight(.medium))
-            }
-            .toggleStyle(.checkbox)
-        }
-        .padding(Spacing.lg)
-        .glassSurface(tint: isConfirmed ? plan.category.tint : nil)
-    }
-
-    @ViewBuilder
-    private var operationDetail: some View {
-        switch plan.operation {
-        case .removeItems(let items):
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(items.prefix(8)) { item in
-                    HStack {
+        Section {
+            switch plan.operation {
+            case .removeItems(let items):
+                ForEach(items.prefix(5)) { item in
+                    LabeledContent {
+                        Text(item.estimatedBytes.formattedBytes).monospacedDigit()
+                    } label: {
                         Text(item.displayName)
                             .font(.callout.monospaced())
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Spacer()
-                        Text(item.estimatedBytes.formattedBytes)
-                            .font(.callout)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
                     }
                 }
-                if items.count > 8 {
-                    Text("e altri \(items.count - 8) elementi")
-                        .font(.caption)
+                if items.count > 5 {
+                    Text("e altri \(items.count - 5) elementi")
                         .foregroundStyle(.secondary)
                 }
+            case .pnpmStorePrune(let tool):
+                LabeledContent("Comando", value: "pnpm store prune")
+                LabeledContent("Versione", value: tool.version.description)
+            case .simctlDeleteUnavailable(let count):
+                LabeledContent("Comando", value: "xcrun simctl delete unavailable")
+                LabeledContent("Dispositivi", value: "\(count)")
             }
-            .padding(Spacing.sm)
-            .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: Radius.small))
-        case .pnpmStorePrune(let tool):
-            Text("Comando: `pnpm store prune` (pnpm \(tool.version.description), \(tool.executable.path))")
-                .font(.callout)
-                .textSelection(.enabled)
-        case .simctlDeleteUnavailable(let count):
-            Text("Comando: `xcrun simctl delete unavailable` · \(count) dispositivi non disponibili")
-                .font(.callout)
+            Toggle("Confermo", isOn: $isConfirmed)
+        } header: {
+            HStack {
+                Text(plan.title)
+                Spacer()
+                Text(plan.estimatedBytes?.formattedBytes ?? "stima di pnpm")
+                    .monospacedDigit()
+            }
+        } footer: {
+            Text(plan.risks.joined(separator: " "))
         }
     }
 }
 
-private extension CategoryID {
-    var symbolFallback: String {
-        switch self {
-        case .appCaches: "internaldrive"
-        case .xcodeDerivedData: "hammer"
-        case .gradleCaches: "shippingbox"
-        case .pnpmStore: "cube.box"
-        case .simulators: "iphone"
-        default: "folder"
-        }
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -207,42 +168,42 @@ private struct CleanupProgressView: View {
     let progress: CleanupProgress
 
     var body: some View {
-        VStack(spacing: Spacing.lg) {
-            Spacer()
-            Image(systemName: "sparkles")
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(.tint)
-                .symbolEffect(.pulse, options: .repeating)
-                .accessibilityHidden(true)
-            Text(progress.categoryTitle.isEmpty ? "Avvio della pulizia…" : progress.categoryTitle)
-                .font(.title2.weight(.semibold))
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                ProgressView(value: Double(progress.categoryIndex), total: Double(max(1, progress.categoryCount))) {
-                    Text("Categoria \(min(progress.categoryIndex + 1, progress.categoryCount)) di \(progress.categoryCount)")
-                        .font(.callout)
-                }
-                if progress.itemCount > 1 {
-                    ProgressView(value: Double(progress.itemIndex), total: Double(progress.itemCount)) {
-                        Text("Elemento \(progress.itemIndex + 1) di \(progress.itemCount)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text(progress.categoryTitle.isEmpty ? "Avvio…" : progress.categoryTitle)
+                            .font(.headline)
+                        ProgressView(value: overallFraction)
+                        if !progress.currentItem.isEmpty {
+                            Text(progress.currentItem)
+                                .font(.callout.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
-                }
-                if !progress.currentItem.isEmpty {
-                    Text(progress.currentItem)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    LabeledContent("Categoria", value: "\(min(progress.categoryIndex + 1, progress.categoryCount)) di \(progress.categoryCount)")
+                    if progress.itemCount > 1 {
+                        LabeledContent("Elemento", value: "\(progress.itemIndex + 1) di \(progress.itemCount)")
+                    }
+                } header: {
+                    Text("Pulizia in corso").font(.headline)
                 }
             }
-            .frame(maxWidth: 420)
-            Button("Interrompi dopo l'elemento corrente", role: .cancel) { model.cancelCleanup() }
-                .actionButtonStyle(.secondary)
-            Spacer()
+            .formStyle(.grouped)
+            SheetFooter {
+                EmptyView()
+            } actions: {
+                Button("Interrompi", role: .cancel) { model.cancelCleanup() }
+            }
         }
-        .padding(Spacing.xxl)
-        .accessibilityElement(children: .contain)
+    }
+
+    private var overallFraction: Double {
+        guard progress.categoryCount > 0 else { return 0 }
+        let itemPart = progress.itemCount > 0 ? Double(progress.itemIndex) / Double(progress.itemCount) : 0
+        return (Double(progress.categoryIndex) + itemPart) / Double(progress.categoryCount)
     }
 }
 
@@ -254,101 +215,78 @@ struct CleanupSummaryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.lg) {
-                    Label("Pulizia terminata", systemImage: summary.errorCount == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        .font(.title.weight(.bold))
+            Form {
+                Section {
+                    LabeledContent("Spazio liberato", value: summary.freedBytes.formattedBytes)
+                    LabeledContent("Spostato nel Cestino", value: summary.trashedBytes.formattedBytes)
+                    LabeledContent("Categorie elaborate", value: "\(summary.processedCategories.count)")
+                    LabeledContent("Errori", value: "\(summary.errorCount)")
+                    LabeledContent("Elementi saltati", value: "\(summary.skippedCount)")
+                } header: {
+                    Label(summary.errorCount == 0 ? "Pulizia completata" : "Pulizia completata con errori",
+                          systemImage: summary.errorCount == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.headline)
                         .foregroundStyle(summary.errorCount == 0 ? .green : .orange)
-                    GlassGroup {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: Spacing.sm)], spacing: Spacing.sm) {
-                            StatTile(title: "Liberato", value: summary.freedBytes.formattedBytes, caption: "Spazio misurato realmente.", symbol: "leaf", tint: .green)
-                            StatTile(title: "Nel Cestino", value: summary.trashedBytes.formattedBytes, caption: "Liberato allo svuotamento.", symbol: "trash", tint: .blue)
-                            StatTile(title: "Elaborate", value: "\(summary.processedCategories.count)", caption: "Categorie completate o parziali.", symbol: "checkmark.circle", tint: .mint)
-                            StatTile(title: "Errori", value: "\(summary.errorCount)", caption: "Operazioni non riuscite.", symbol: "xmark.octagon", tint: .red)
-                            StatTile(title: "Saltati", value: "\(summary.skippedCount)", caption: "Elementi o categorie incerte.", symbol: "forward", tint: .orange)
-                        }
-                    }
-                    ForEach(summary.outcomes) { outcome in
-                        OutcomeCard(outcome: outcome)
+                } footer: {
+                    if summary.trashedBytes > 0 {
+                        Text("Lo spazio degli elementi nel Cestino si libera svuotando il Cestino.")
                     }
                 }
-                .padding(Spacing.xl)
+                ForEach(summary.outcomes) { outcome in
+                    OutcomeSection(outcome: outcome)
+                }
             }
-            Divider()
-            HStack {
-                Text("Durata: \(Duration.seconds(summary.finishedAt.timeIntervalSince(summary.startedAt)).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))")
-                    .font(.callout)
+            .formStyle(.grouped)
+            SheetFooter {
+                Text(Duration.seconds(summary.finishedAt.timeIntervalSince(summary.startedAt)).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))
                     .foregroundStyle(.secondary)
-                Spacer()
-                Button("Chiudi") { dismiss() }
+            } actions: {
+                Button("Fine") { dismiss() }
                     .keyboardShortcut(.defaultAction)
                     .actionButtonStyle(.primary)
             }
-            .padding(Spacing.lg)
         }
     }
 }
 
-private struct OutcomeCard: View {
+private struct OutcomeSection: View {
     let outcome: CategoryOutcome
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack {
-                Text(outcome.title).font(.headline)
-                Text(outcome.status.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusTint)
-                    .padding(.horizontal, Spacing.xs)
-                    .padding(.vertical, 2)
-                    .glassCapsule(tint: statusTint)
-                Spacer()
-                Text(outcome.freedBytes > 0 ? outcome.freedBytes.formattedBytes : (outcome.trashedBytes > 0 ? "\(outcome.trashedBytes.formattedBytes) nel Cestino" : "—"))
-                    .monospacedDigit()
+        Section {
+            LabeledContent("Esito") {
+                Text(outcome.status.title).foregroundStyle(statusTint)
+            }
+            if outcome.freedBytes > 0 || outcome.trashedBytes > 0 {
+                LabeledContent(outcome.freedBytes > 0 ? "Liberato" : "Nel Cestino",
+                               value: (outcome.freedBytes > 0 ? outcome.freedBytes : outcome.trashedBytes).formattedBytes)
             }
             if let note = outcome.note {
-                Text(note)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                Text(note).foregroundStyle(.secondary).textSelection(.enabled)
             }
             if !outcome.skipped.isEmpty {
-                DisclosureGroup("\(outcome.skipped.count) elementi saltati") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(outcome.skipped.prefix(50)) { item in
-                            Text("\(item.name) — \(item.reason)")
-                                .font(.caption)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                DisclosureGroup("\(outcome.skipped.count) saltati") {
+                    ForEach(outcome.skipped.prefix(50)) { item in
+                        LabeledContent(item.name) { Text(item.reason).foregroundStyle(.secondary) }
                     }
                 }
-                .font(.callout)
             }
             if !outcome.errors.isEmpty {
                 DisclosureGroup("\(outcome.errors.count) errori") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(outcome.errors.prefix(50), id: \.self) { error in
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
+                    ForEach(outcome.errors.prefix(50), id: \.self) { Text($0).foregroundStyle(.red) }
                 }
-                .font(.callout)
             }
+        } header: {
+            Text(outcome.title)
         }
-        .padding(Spacing.md)
-        .glassSurface(cornerRadius: Radius.tile)
     }
 
     private var statusTint: Color {
         switch outcome.status {
         case .completed: .green
         case .partial: .orange
-        case .skipped: .secondary
+        case .skipped, .cancelled: .secondary
         case .failed: .red
-        case .cancelled: .gray
         }
     }
 }

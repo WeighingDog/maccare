@@ -4,91 +4,62 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            Tab("Sicurezza", systemImage: "lock.shield") { SafetySettings() }
-            Tab("Analisi", systemImage: "magnifyingglass") { AnalysisSettings() }
-            Tab("Policy", systemImage: "list.bullet.rectangle") { PolicyOverview() }
+            Tab("Generali", systemImage: "gearshape") { GeneralSettings() }
+            Tab("Policy", systemImage: "lock.shield") { PolicyOverview() }
         }
-        .frame(width: 620, height: 520)
+        .frame(width: 560, height: 520)
     }
 }
 
-private struct SafetySettings: View {
+private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var settings = model.settings
         Form {
-            Section {
+            Section("Pulizia") {
                 Picker("Metodo di rimozione", selection: $settings.removalMethod) {
                     ForEach(RemovalMethod.allCases) { Text($0.title).tag($0) }
                 }
-                .pickerStyle(.radioGroup)
-                Text(settings.removalMethod.explanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Pulizia")
-            } footer: {
-                Text("All'avvio MacCare è sempre in modalità solo analisi: la pulizia si abilita per la singola sessione dalla sezione Pulizia.")
-            }
-
-            Section("Simulatori") {
-                Toggle("Consenti `xcrun simctl delete unavailable`", isOn: $settings.allowSimulatorMaintenance)
-                Text("Elimina solo i simulatori con runtime non più installato, tramite il comando ufficiale. Runtime, dispositivi disponibili e file di CoreSimulator non vengono mai toccati direttamente.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Registro") {
-                LabeledContent("Posizione") {
-                    Text(OperationLogger.defaultFileURL().path.replacingOccurrences(of: model.policy.home.path, with: "~"))
-                        .font(.callout.monospaced())
-                        .textSelection(.enabled)
-                }
-                Button("Mostra nel Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([OperationLogger.defaultFileURL()])
-                }
-                Text("Contiene solo metadati operativi (date, percorsi, dimensioni, esiti), mai il contenuto dei file.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct AnalysisSettings: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        @Bindable var settings = model.settings
-        Form {
-            Section("Ambito") {
-                Toggle("Misura i contenitori di altre app", isOn: $settings.includeOtherAppContainers)
-                Text("Include ~/Library/Containers e ~/Library/Group Containers (solo dimensioni). macOS potrebbe chiedere il permesso di accedere ai dati di altre app.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Stepper(value: $settings.largeDirectoryThresholdMB, in: 100...20_000, step: 100) {
-                    LabeledContent("Soglia directory grandi", value: Int64(settings.largeDirectoryThresholdMB * 1_000_000).formattedBytes)
+                Toggle(isOn: $settings.allowSimulatorMaintenance) {
+                    Text("Elimina simulatori non disponibili")
+                    Text("Usa solo `xcrun simctl delete unavailable`.")
                 }
             }
 
-            Section("Strumenti di sviluppo") {
-                Toggle("Usa il PATH della shell di login", isOn: $settings.useLoginShellPath)
-                Text("Le app avviate dal Finder non ereditano il PATH del Terminale. Con questa opzione MacCare legge il PATH da zsh/bash (in sola lettura, con timeout) per trovare pnpm e node.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Accesso al disco") {
-                Text("MacCare non richiede privilegi di amministratore e non aggira le protezioni di macOS. Alcune cartelle protette dalla privacy possono risultare non leggibili: vengono indicate come «non analizzabili». Se vuoi misurarle, puoi concedere l'Accesso completo al disco a MacCare nelle Impostazioni di Sistema.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Button("Apri Privacy e sicurezza…") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
-                        NSWorkspace.shared.open(url)
+            Section("Analisi") {
+                Toggle(isOn: $settings.includeOtherAppContainers) {
+                    Text("Misura i contenitori di altre app")
+                    Text("macOS può chiedere il permesso per ogni app.")
+                }
+                Toggle(isOn: $settings.useLoginShellPath) {
+                    Text("Usa il PATH della shell di login")
+                    Text("Serve a trovare pnpm e node.")
+                }
+                Picker("Soglia cartelle grandi", selection: $settings.largeDirectoryThresholdMB) {
+                    ForEach([100, 250, 500, 1_000, 5_000], id: \.self) { mb in
+                        Text(Int64(mb * 1_000_000).formattedBytes).tag(mb)
                     }
                 }
+            }
+
+            Section {
+                LabeledContent("Accesso completo al disco") {
+                    Button("Apri Impostazioni…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                LabeledContent("Registro attività") {
+                    Button("Mostra nel Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([OperationLogger.defaultFileURL()])
+                    }
+                }
+            } header: {
+                Text("Permessi e dati")
+            } footer: {
+                Text("Facoltativo: serve solo a misurare i dati protetti da macOS. Il registro contiene solo metadati, mai il contenuto dei file.")
             }
         }
         .formStyle(.grouped)
@@ -103,25 +74,23 @@ private struct PolicyOverview: View {
         Form {
             Section {
                 ForEach(model.policy.rules) { rule in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(rule.title).font(.callout.weight(.medium))
+                    LabeledContent(rule.title) {
                         Text("~/\(rule.rootRelativePath)/*")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                            .font(.callout.monospaced())
                             .textSelection(.enabled)
                     }
                 }
             } header: {
-                Text("Allowlist (\(model.policy.rules.count) regole)")
+                Text("Cartelle autorizzate")
             } footer: {
-                Text("Sono rimovibili solo i figli diretti di queste cartelle, mai le cartelle stesse.")
+                Text("Si rimuove solo il contenuto di queste cartelle, mai le cartelle stesse.")
             }
-            Section("Aree protette (\(model.policy.protectedAreas.count))") {
+            Section("Aree protette") {
                 ForEach(model.policy.protectedAreas, id: \.self) { area in
                     LabeledContent {
-                        Text(area.reason).foregroundStyle(.secondary)
+                        Text(area.reason)
                     } label: {
-                        Text("~/\(area.relativePath)").font(.caption.monospaced())
+                        Text("~/\(area.relativePath)").font(.callout.monospaced())
                     }
                 }
             }

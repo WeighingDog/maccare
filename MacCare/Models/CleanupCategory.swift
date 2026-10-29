@@ -34,7 +34,7 @@ enum SafetyLevel: String, Codable, Sendable, CaseIterable {
     var title: String {
         switch self {
         case .recreatable: "Ricreabile"
-        case .redownload: "Richiede riscaricamento"
+        case .redownload: "Riscaricabile"
         case .analysisOnly: "Solo analisi"
         case .protected: "Protetto"
         }

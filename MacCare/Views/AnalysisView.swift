@@ -1,120 +1,243 @@
 import SwiftUI
 
+/// Analisi: tabella gerarchica categorie › percorsi, con inspector dei dettagli.
 struct AnalysisView: View {
     @Environment(AppModel.self) private var model
-    var scrollable = true
+    @State private var mode: Mode = .categories
+    @State private var selection: AnalysisRow.ID?
+    @State private var sortOrder = [KeyPathComparator(\AnalysisRow.size, order: .reverse)]
+    @State private var showsInspector = false
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case categories, largeDirectories
+        var id: String { rawValue }
+        var title: String { self == .categories ? "Categorie" : "Cartelle grandi" }
+    }
 
     var body: some View {
         Group {
-            if !model.hasScanned && !model.isScanning {
+            if !model.hasScanned {
                 ContentUnavailableView {
-                    Label("Nessun dato", systemImage: "chart.bar.doc.horizontal")
+                    Label(model.isScanning ? "Analisi in corso" : "Nessun dato", systemImage: "chart.bar.doc.horizontal")
                 } description: {
-                    Text("Avvia una scansione per misurare le cartelle analizzate da MacCare.")
+                    Text(model.isScanning ? "\(model.scanProgress.itemsVisited.formatted()) elementi esaminati" : "Avvia un'analisi per misurare le cartelle.")
                 } actions: {
-                    Button("Avvia scansione") { model.startScan() }
-                        .actionButtonStyle(.primary)
-                }
-            } else {
-                PageContainer(scrollable: scrollable) {
-                    VStack(alignment: .leading, spacing: Spacing.xl) {
-                        PageHeader("Analisi", subtitle: "Dimensioni misurate, livello di sicurezza e azioni disponibili")
-                        if model.isScanning { ScanProgressCard() }
-                        ForEach(CategorySection.allCases, id: \.self) { section in
-                            let categories = model.categories(in: section)
-                            if !categories.isEmpty {
-                                CategoryListCard(section: section, categories: categories)
-                            }
-                        }
-                        LargeDirectoriesCard()
+                    if !model.isScanning {
+                        Button("Analizza") { model.startScan() }
+                            .actionButtonStyle(.primary)
                     }
-                    .pageLayout()
                 }
+            } else if mode == .categories {
+                categoriesTable
+            } else {
+                LargeDirectoriesTable()
             }
         }
         .navigationTitle("Analisi")
-    }
-}
-
-private struct CategoryListCard: View {
-    @Environment(AppModel.self) private var model
-    let section: CategorySection
-    let categories: [CleanupCategory]
-
-    var body: some View {
-        let sorted = categories.sorted { model.size(of: $0) > model.size(of: $1) }
-        let maxSize = max(1, sorted.map { model.size(of: $0) }.max() ?? 1)
-        SectionCard(section.title, symbol: symbol) {
-            VStack(spacing: Spacing.xxs) {
-                ForEach(sorted) { category in
-                    NavigationLink(value: category.id) {
-                        CategoryRow(category: category, maxSize: maxSize)
-                    }
-                    .buttonStyle(.plain)
-                    if category.id != sorted.last?.id { Divider() }
+        .onChange(of: selection) { _, newValue in
+            if newValue != nil { showsInspector = true }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Vista", selection: $mode) {
+                    ForEach(Mode.allCases) { Text($0.title).tag($0) }
                 }
+                .pickerStyle(.segmented)
+                .disabled(!model.hasScanned)
+            }
+            ToolbarItem {
+                Button {
+                    showsInspector.toggle()
+                } label: {
+                    Label("Dettagli", systemImage: "sidebar.trailing")
+                }
+                .help("Mostra o nascondi i dettagli")
+            }
+        }
+        .inspector(isPresented: $showsInspector) {
+            Group {
+                if let id = selectedCategoryID, let category = model.category(id) {
+                    CategoryDetailForm(category: category, compact: true)
+                } else {
+                    ContentUnavailableView("Nessuna selezione", systemImage: "sidebar.trailing", description: Text("Seleziona una riga per vederne i dettagli."))
+                }
+            }
+            .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
+        }
+    }
+
+    private var selectedCategoryID: CategoryID? {
+        guard let selection else { return nil }
+        return CategoryID(rawValue: String(selection.split(separator: "/").first ?? ""))
+    }
+
+    private var rows: [AnalysisRow] {
+        model.categories
+            .map { AnalysisRow(category: $0, model: model) }
+            .sorted(using: sortOrder)
+    }
+
+    private var categoriesTable: some View {
+        Table(rows, children: \.children, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Nome", value: \.title) { row in
+                HStack(spacing: Spacing.xs) {
+                    if let symbol = row.symbol {
+                        IconTile(symbol: symbol, tint: row.categoryID.tint, size: 20)
+                    }
+                    Text(row.title)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(row.path ?? row.title)
+                }
+            }
+            .width(min: 200, ideal: 250)
+            TableColumn("Dimensione", value: \.size) { row in
+                Text(row.sizeText).monospacedDigit()
+            }
+            .width(min: 80, ideal: 100)
+            TableColumn("Recuperabile") { row in
+                Text(row.recoverableText)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 80, ideal: 100)
+            TableColumn("Sicurezza", value: \.safety.title) { row in
+                SafetyLabel(level: row.safety)
+            }
+            .width(min: 110, ideal: 130)
+            TableColumn("Analisi") { row in
+                Text(row.stateText)
+                    .foregroundStyle(row.stateIsProblem ? .orange : .secondary)
+            }
+            .width(min: 90, ideal: 120)
+        }
+        .contextMenu(forSelectionType: AnalysisRow.ID.self) { ids in
+            if let id = ids.first, let categoryID = CategoryID(rawValue: String(id.split(separator: "/").first ?? "")) {
+                Button("Apri dettagli") { model.openCategory(categoryID) }
+            }
+        } primaryAction: { ids in
+            if let id = ids.first, let categoryID = CategoryID(rawValue: String(id.split(separator: "/").first ?? "")) {
+                model.openCategory(categoryID)
             }
         }
     }
+}
 
-    private var symbol: String {
-        switch section {
-        case .cleanup: "sparkles"
-        case .development: "hammer"
-        case .protected: "lock.shield"
-        case .diagnostic: "stethoscope"
+/// Riga della tabella: una categoria o, come figlio, uno dei suoi percorsi.
+struct AnalysisRow: Identifiable, Hashable {
+    let id: String
+    let categoryID: CategoryID
+    let title: String
+    let symbol: String?
+    let path: String?
+    let size: Int64
+    let sizeText: String
+    let recoverableText: String
+    let safety: SafetyLevel
+    let stateText: String
+    let stateIsProblem: Bool
+    var children: [AnalysisRow]?
+
+    @MainActor
+    init(category: CleanupCategory, model: AppModel) {
+        id = category.id.rawValue
+        categoryID = category.id
+        title = category.title
+        symbol = category.symbol
+        path = nil
+        size = model.size(of: category)
+        sizeText = model.sizeText(for: category)
+        recoverableText = model.estimateText(for: category)
+        safety = category.safety
+        stateText = model.measurementStateText(for: category)
+        stateIsProblem = stateText == "Parziale" || stateText == "Accesso negato"
+        let locations = category.locations.filter { model.measurement(for: $0)?.state != .notFound }
+        children = locations.count > 1 ? locations
+            .map { AnalysisRow(location: $0, category: category, model: model) }
+            .sorted { $0.size > $1.size } : nil
+    }
+
+    @MainActor
+    private init(location: LocationSpec, category: CleanupCategory, model: AppModel) {
+        let measurement = model.measurement(for: location)
+        id = "\(category.id.rawValue)/\(location.id)"
+        categoryID = category.id
+        title = location.title
+        symbol = nil
+        path = location.path.abbreviatingHome(model.policy.home)
+        size = measurement?.state.isMeasured == true ? measurement?.allocatedBytes ?? 0 : 0
+        switch measurement?.state {
+        case .measured?: sizeText = size.formattedBytes
+        case .denied?: sizeText = "—"
+        default: sizeText = "—"
         }
+        if let ruleID = location.kind.ruleID, measurement?.state.isMeasured == true {
+            let bytes = model.plannedRemovals(for: category).filter { $0.ruleID == ruleID }.reduce(0) { $0 + $1.estimatedBytes }
+            recoverableText = bytes.formattedBytes
+        } else {
+            recoverableText = "—"
+        }
+        safety = location.kind.isProtected ? .protected : (location.kind.ruleID != nil ? category.safety : .analysisOnly)
+        switch measurement?.state {
+        case .denied?:
+            stateText = "Accesso negato"
+            stateIsProblem = true
+        case .symbolicLink?:
+            stateText = "Link non seguito"
+            stateIsProblem = false
+        case .measured? where measurement?.isPartial == true:
+            stateText = "Parziale"
+            stateIsProblem = true
+        case .measured?:
+            stateText = "Completa"
+            stateIsProblem = false
+        default:
+            stateText = "—"
+            stateIsProblem = false
+        }
+        children = nil
     }
 }
 
-/// Cartelle più grandi trovate in tutte le scomposizioni, con la classificazione della policy.
-struct LargeDirectoriesCard: View {
+/// Cartelle più grandi trovate in tutte le scomposizioni (solo diagnostica).
+private struct LargeDirectoriesTable: View {
     @Environment(AppModel.self) private var model
-    var limit = 25
+    @State private var selection: LargeDirectory.ID?
 
     var body: some View {
-        let items = model.largeDirectories(limit: limit)
-        SectionCard("Directory grandi individuate", symbol: "folder.badge.questionmark") {
-            Text("≥ \(Int64(model.settings.largeDirectoryThresholdMB * 1_000_000).formattedBytes)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } content: {
-            if items.isEmpty {
-                Text("Nessuna cartella sopra la soglia impostata.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else {
-                let maxSize = max(1, items.first?.allocatedBytes ?? 1)
-                VStack(spacing: Spacing.xs) {
-                    ForEach(items) { item in
-                        HStack(spacing: Spacing.sm) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name)
-                                    .font(.callout.weight(.medium))
-                                    .lineLimit(1)
-                                Text(item.path.replacingOccurrences(of: model.policy.home.path, with: "~"))
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .textSelection(.enabled)
-                            }
-                            Spacer(minLength: Spacing.sm)
-                            SizeBar(fraction: Double(item.allocatedBytes) / Double(maxSize), tint: item.classification.tint == .secondary ? .gray : item.classification.tint)
-                                .frame(width: 120)
-                            Text(item.allocatedBytes.formattedBytes)
-                                .font(.callout)
-                                .monospacedDigit()
-                                .frame(minWidth: 72, alignment: .trailing)
-                            ClassificationBadge(classification: item.classification)
-                                .frame(minWidth: 120, alignment: .trailing)
-                        }
-                        .accessibilityElement(children: .combine)
+        let items = model.largeDirectories(limit: 200)
+        if items.isEmpty {
+            ContentUnavailableView("Nessuna cartella sopra la soglia", systemImage: "folder", description: Text("La soglia si cambia nelle Impostazioni."))
+        } else {
+            Table(items, selection: $selection) {
+                TableColumn("Nome") { item in
+                    Label(item.name, systemImage: "folder")
+                        .lineLimit(1)
+                        .help(item.path)
+                }
+                .width(min: 180, ideal: 260)
+                TableColumn("Dimensione") { item in
+                    Text(item.allocatedBytes.formattedBytes).monospacedDigit()
+                }
+                .width(min: 80, ideal: 100)
+                TableColumn("Policy") { item in
+                    ClassificationLabel(classification: item.classification)
+                }
+                .width(min: 110, ideal: 140)
+                TableColumn("Percorso") { item in
+                    Text(item.path.abbreviatingHome(model.policy.home))
+                        .font(.callout.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .contextMenu(forSelectionType: LargeDirectory.ID.self) { ids in
+                if let path = ids.first {
+                    Button("Mostra nel Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                     }
                 }
-                Text("Solo diagnostica: queste cartelle non vengono modificate. Le dimensioni di cartelle annidate si sovrappongono.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }

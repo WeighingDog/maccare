@@ -4,7 +4,8 @@ App nativa macOS (SwiftUI) per analizzare lo spazio su disco e rimuovere **in si
 
 > Priorità assoluta: proteggere dati personali e ambiente di sviluppo. Un'operazione incerta viene **saltata**, non eseguita.
 
-- Deployment target: **macOS 15.0** (Liquid Glass attivo da macOS 26, con alternativa a materiali su macOS 15)
+- Deployment target: **macOS 15.0**
+- Interfaccia in stile nativo di sistema (Form raggruppati, Table, inspector, sidebar): Liquid Glass solo dove lo prevede macOS 26 (toolbar, sidebar, controlli), contenuti su fondo pieno
 - Linguaggio: Swift 6 (strict concurrency), SwiftUI, Swift Charts, Swift Testing
 - Verificato con: Xcode 27.0 (27A266a), Swift 6.4, macOS 27.0.1
 
@@ -107,13 +108,13 @@ Anche senza sandbox, macOS protegge alcuni dati con TCC:
 - **Cache JetBrains** escluse di proposito: in `~/Library/Caches/JetBrains/*` c'è anche la *Local History*, che è un dato dell'utente.
 - **SwiftPM** (`~/Library/Caches/org.swift.swiftpm`) escluso: contiene repository Git (mirror). Esiste il comando ufficiale `swift package purge-cache`.
 - **Dynamic Type**: su macOS il ridimensionamento del testo di sistema è limitato. L'interfaccia usa solo stili tipografici semantici.
-- **Interfaccia**: da rivedere (decisione presa durante lo sviluppo). Per le istantanee di verifica, nella build Debug:
+- **Istantanee di verifica** (solo build Debug): l'app percorre le schermate fino al riepilogo della pulizia, senza mai eseguirla, e le cattura con `screencapture`:
 
 ```bash
-/path/to/MacCare.app/Contents/MacOS/MacCare -MacCareSnapshotDir /tmp/shots -MacCareScanOnLaunch
+/path/to/MacCare.app/Contents/MacOS/MacCare -MacCareSnapshotDir /tmp/shots -MacCareScanOnLaunch -MacCareDark
 ```
 
-  Le istantanee usano `ImageRenderer`: Liquid Glass e alcuni controlli di sistema non vengono disegnati fuori schermo. La modalità esegue una scansione reale in sola lettura, arriva fino al riepilogo della pulizia senza eseguirla e registra nel log la scansione e l'abilitazione di sessione.
+  La modalità esegue un'analisi reale in sola lettura e registra nel log l'analisi e l'abilitazione di sessione.
 
 ## Test
 
