@@ -3,15 +3,14 @@ import Observation
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case overview, analysis, cleanup, development, activity
+    case smartClean, space, development, activity
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .overview: "Panoramica"
-        case .analysis: "Analisi"
-        case .cleanup: "Pulizia"
+        case .smartClean: "Pulizia intelligente"
+        case .space: "Spazio"
         case .development: "Sviluppo"
         case .activity: "Attività"
         }
@@ -19,11 +18,10 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
-        case .overview: "gauge.with.dots.needle.50percent"
-        case .analysis: "chart.bar.doc.horizontal"
-        case .cleanup: "sparkles"
+        case .smartClean: "sparkles"
+        case .space: "chart.bar.xaxis"
         case .development: "hammer"
-        case .activity: "clock.arrow.circlepath"
+        case .activity: "clock"
         }
     }
 }
@@ -56,7 +54,6 @@ enum RecoverableEstimate: Equatable {
 
 enum ActionAvailability: Equatable {
     case available
-    case analysisMode
     case unavailable(String)
     case notApplicable(String)
 
@@ -65,7 +62,6 @@ enum ActionAvailability: Equatable {
     var message: String? {
         switch self {
         case .available: nil
-        case .analysisMode: "Modalità solo analisi: abilita la pulizia per questa sessione."
         case .unavailable(let reason), .notApplicable(let reason): reason
         }
     }
@@ -91,7 +87,7 @@ final class AppModel {
     private let probe: any RunningSoftwareProbe = SystemRunningSoftwareProbe()
 
     // Navigazione
-    var selection: SidebarItem? = .overview {
+    var selection: SidebarItem? = .smartClean {
         didSet { if selection != oldValue { detailPath = NavigationPath() } }
     }
     /// Percorso di navigazione del dettaglio (categorie aperte).
@@ -115,17 +111,14 @@ final class AppModel {
     private(set) var runningSnapshot: RunningSoftwareSnapshot?
     private var scanTask: Task<Void, Never>?
 
-    // Pulizia (la modalità iniziale è sempre "solo analisi")
-    private(set) var cleanupEnabledThisSession = false
+    // Pulizia. Nessuna categoria è mai preselezionata: spuntarla è la conferma esplicita
+    // della categoria, e la pulizia parte solo dopo la conferma finale (`confirmsCleaning`).
     var selectedForCleanup: Set<CategoryID> = []
-    var reviewPlan: CleanupPlan?
-    /// Foglio del flusso di pulizia (riepilogo → avanzamento → esito).
-    var showsCleanupFlow = false {
-        didSet {
-            if !showsCleanupFlow, !isCleaning { reviewPlan = nil }
-        }
-    }
-    var lastSummary: CleanupSummary?
+    /// Richiesta di conferma finale in corso.
+    var confirmsCleaning = false
+    /// Esito mostrato nella home finché l'utente non lo chiude.
+    var presentedSummary: CleanupSummary?
+    private(set) var lastSummary: CleanupSummary?
     private(set) var cleanupPhase: CleanupPhase = .idle
     private(set) var sessionFreedBytes: Int64 = 0
     private(set) var sessionTrashedBytes: Int64 = 0
@@ -199,10 +192,8 @@ final class AppModel {
         Set(categories.flatMap { unanalyzableLocations(in: $0).map(\.path) }).count
     }
 
-    var pendingConfirmationCount: Int {
-        if let reviewPlan { return reviewPlan.categories.filter { !$0.isConfirmed }.count }
-        return selectedForCleanup.count
-    }
+    /// Categorie selezionate ma non ancora pulite (in attesa della conferma finale).
+    var pendingConfirmationCount: Int { selectedForCleanup.count }
 
     var allTimeFreedBytes: Int64 {
         activity.filter { $0.kind == .cleanup }.compactMap(\.freedBytes).reduce(0, +)
@@ -260,28 +251,24 @@ final class AppModel {
         case .none(let reason):
             return .notApplicable(reason)
         case .removeContents:
-            guard hasScanned else { return .unavailable("Esegui prima una scansione.") }
-            guard !plannedRemovals(for: category).isEmpty else { return .unavailable("Nessun elemento da pulire.") }
+            guard hasScanned else { return .unavailable("Esegui prima un'analisi") }
+            guard !plannedRemovals(for: category).isEmpty else { return .unavailable("Niente da pulire") }
         case .pnpmStorePrune:
-            guard hasScanned else { return .unavailable("Esegui prima una scansione.") }
+            guard hasScanned else { return .unavailable("Esegui prima un'analisi") }
             guard pnpmStatus.tool != nil else { return .unavailable(pnpmStatus.message) }
         case .simctlDeleteUnavailable:
             guard settings.allowSimulatorMaintenance else {
-                return .notApplicable("Solo analisi. Puoi abilitare `simctl delete unavailable` nelle Impostazioni.")
+                return .notApplicable("Solo analisi · attivabile nelle Impostazioni")
             }
-            guard hasScanned else { return .unavailable("Esegui prima una scansione.") }
-            guard let inventory = simulatorInventory else { return .unavailable("simctl non disponibile su questo Mac.") }
-            guard !inventory.unavailableDevices.isEmpty else { return .unavailable("Nessun dispositivo non disponibile da eliminare.") }
+            guard hasScanned else { return .unavailable("Esegui prima un'analisi") }
+            guard let inventory = simulatorInventory else { return .unavailable("simctl non disponibile su questo Mac") }
+            guard !inventory.unavailableDevices.isEmpty else { return .unavailable("Nessun simulatore da eliminare") }
         }
-        return cleanupEnabledThisSession ? .available : .analysisMode
+        return .available
     }
 
-    /// Una categoria resta selezionabile se l'azione esiste ed è (o può diventare) disponibile.
     func isSelectable(_ category: CleanupCategory) -> Bool {
-        switch availability(for: category) {
-        case .available, .analysisMode: true
-        case .unavailable, .notApplicable: false
-        }
+        availability(for: category) == .available
     }
 
     var actionableCategories: [CleanupCategory] {
@@ -374,7 +361,6 @@ final class AppModel {
             lastScanDuration = Date().timeIntervalSince(start)
             scanPhase = .completed
             selectedForCleanup = selectedForCleanup.filter { id in category(id).map(isSelectable) ?? false }
-            reviewPlan = nil
             let denied = unanalyzableCount
             await logger.record(ActivityEntry(
                 kind: .scan,
@@ -403,28 +389,22 @@ final class AppModel {
 
     // MARK: - Pulizia
 
-    func enableCleanupForSession() {
-        cleanupEnabledThisSession = true
-        Task {
-            await logger.record(ActivityEntry(kind: .policy, outcome: .info, title: "Pulizia abilitata per la sessione", detail: "Ogni operazione richiede comunque una conferma per categoria."))
-            await refreshActivity()
-        }
-    }
-
-    func disableCleanupForSession() {
-        cleanupEnabledThisSession = false
-        reviewPlan = nil
-    }
-
     func toggleSelection(_ id: CategoryID) {
         if selectedForCleanup.contains(id) { selectedForCleanup.remove(id) } else { selectedForCleanup.insert(id) }
     }
 
-    /// Prepara il riepilogo da confermare. Nessuna operazione viene eseguita qui.
-    func prepareReview() {
+    var selectedCategories: [CleanupCategory] {
+        actionableCategories.filter { selectedForCleanup.contains($0.id) && isSelectable($0) }
+    }
+
+    var selectedEstimateBytes: Int64 {
+        selectedCategories.compactMap { estimate(for: $0).bytes }.reduce(0, +)
+    }
+
+    /// Piano delle sole categorie spuntate e disponibili. Nessuna operazione viene eseguita qui.
+    func makePlan() -> CleanupPlan? {
         var plans: [CategoryPlan] = []
-        for id in CategoryID.allCases where selectedForCleanup.contains(id) {
-            guard let category = category(id), availability(for: category) == .available else { continue }
+        for category in selectedCategories {
             let operation: PlannedOperation
             switch category.action {
             case .removeContents:
@@ -439,19 +419,32 @@ final class AppModel {
             case .none:
                 continue
             }
-            plans.append(CategoryPlan(category: id, title: category.title, operation: operation, estimatedBytes: estimate(for: category).bytes, risks: category.risks))
+            // La spunta della categoria è la sua conferma esplicita.
+            plans.append(CategoryPlan(category: category.id, title: category.title, operation: operation,
+                                      estimatedBytes: estimate(for: category).bytes, risks: category.risks, isConfirmed: true))
         }
-        reviewPlan = plans.isEmpty ? nil : CleanupPlan(method: settings.removalMethod, categories: plans)
-        showsCleanupFlow = reviewPlan != nil
+        return plans.isEmpty ? nil : CleanupPlan(method: settings.removalMethod, categories: plans)
     }
 
-    func executeReviewedPlan() {
-        guard let plan = reviewPlan, cleanupEnabledThisSession, !isCleaning, !isScanning else { return }
-        lastSummary = nil
+    /// Mostra la conferma finale (elenco delle categorie e totale).
+    func requestCleaning() {
+        guard !isCleaning, !isScanning, !selectedCategories.isEmpty else { return }
+        confirmsCleaning = true
+    }
+
+    /// Esegue la pulizia dopo la conferma finale.
+    func cleanSelected() {
+        confirmsCleaning = false
+        guard let plan = makePlan(), !isCleaning, !isScanning else { return }
+        presentedSummary = nil
         let allowSimulators = settings.allowSimulatorMaintenance
         let manager = CleanupManager(policy: policy, logger: logger, allowSimulatorMaintenance: { allowSimulators })
         cleanupPhase = .running(CleanupProgress(categoryTitle: "", categoryIndex: 0, categoryCount: plan.categories.count, itemIndex: 0, itemCount: 0, currentItem: ""))
         cleanupTask = Task {
+            await logger.record(ActivityEntry(
+                kind: .policy, outcome: .info, title: "Pulizia confermata",
+                detail: plan.categories.map(\.title).joined(separator: ", ") + " · \(plan.method.title)"
+            ))
             let summary = await manager.execute(plan) { [self] progress in
                 Task { @MainActor in
                     // Gli aggiornamenti arrivati dopo la fine vengono ignorati.
@@ -459,16 +452,20 @@ final class AppModel {
                     self.cleanupPhase = .running(progress)
                 }
             }
-            reviewPlan = nil
             cleanupPhase = .idle
             sessionFreedBytes += summary.freedBytes
             sessionTrashedBytes += summary.trashedBytes
             selectedForCleanup.subtract(summary.outcomes.map(\.category))
             lastSummary = summary
+            presentedSummary = summary
             await refreshActivity()
             // Le misure sono cambiate: aggiorna i dati reali.
             startScan()
         }
+    }
+
+    func dismissSummary() {
+        presentedSummary = nil
     }
 
     func cancelCleanup() {

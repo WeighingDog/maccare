@@ -35,7 +35,7 @@ struct DevelopmentView: View {
                 LabeledContent {
                     SizeText(bytes: model.measurement(for: location)?.state.isMeasured == true ? model.measurement(for: location)?.allocatedBytes : nil)
                 } label: {
-                    CategoryLabel(title: location.title, subtitle: "Solo analisi · gestibile da Xcode", symbol: "iphone.and.arrow.forward", tint: .gray)
+                    CategoryLabel(title: location.title, subtitle: "Solo analisi · gestibile da Xcode", symbol: "iphone.and.arrow.forward")
                 }
             }
         }
@@ -55,7 +55,7 @@ struct CategoryLinkRow: View {
                     .foregroundStyle(.secondary)
             } label: {
                 let status = model.statusLine(for: category)
-                CategoryLabel(title: category.title, subtitle: status.text, symbol: category.symbol, tint: category.id.tint, subtitleStyle: status.color)
+                CategoryLabel(title: category.title, subtitle: status.text, symbol: category.symbol, subtitleStyle: status.color)
             }
         }
     }

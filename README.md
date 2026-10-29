@@ -5,7 +5,7 @@ App nativa macOS (SwiftUI) per analizzare lo spazio su disco e rimuovere **in si
 > Priorità assoluta: proteggere dati personali e ambiente di sviluppo. Un'operazione incerta viene **saltata**, non eseguita.
 
 - Deployment target: **macOS 15.0**
-- Interfaccia in stile nativo di sistema (Form raggruppati, Table, inspector, sidebar): Liquid Glass solo dove lo prevede macOS 26 (toolbar, sidebar, controlli), contenuti su fondo pieno
+- Interfaccia nativa e sobria: home "Pulizia intelligente" (Analizza → scegli → Pulisci), tabella "Spazio" con inspector, palette monocromatica con il colore d'accento di sistema; Liquid Glass solo sui controlli (macOS 26+)
 - Linguaggio: Swift 6 (strict concurrency), SwiftUI, Swift Charts, Swift Testing
 - Verificato con: Xcode 27.0 (27A266a), Swift 6.4, macOS 27.0.1
 
@@ -37,8 +37,8 @@ MacCare/
   Models/     CleanupCategory, CategoryCatalog, ScanModels (misure, StorageMath, volume)
   Core/       SafetyPolicy, StorageScanner, CleanupManager, SafeRemover, OperationLogger,
               ProcessInspector, CommandRunner, DevToolsInspector, FileStat
-  Views/      StorageDashboardView, AnalysisView, CleanupView, CleanupFlowSheet,
-              CleanupCategoryView, DevelopmentView, ActivityView, SettingsView, Components/
+  Views/      SmartCleanView (home), AnalysisView (Spazio), CleanupCategoryView, DevelopmentView,
+              ActivityView, SettingsView, Components/
 MacCareTests/ test di policy, classificazione, scanner, rimozione, manager, comandi, registro
 .claude/skills/ios-design/  skill di design usata per l'interfaccia (vedi SOURCE.md)
 ```
@@ -61,7 +61,7 @@ MacCareTests/ test di policy, classificazione, scanner, rimozione, manager, coma
 - Elenco dei simulatori (`xcrun simctl list devices --json`) con dimensione per dispositivo.
 - Rilevamento di pnpm (versione, eseguibile, store) e dei processi attivi (Xcode, build, Simulator, Gradle, Android Studio, pnpm).
 
-**Pulizia (solo dopo l'abilitazione per la sessione, il riepilogo e la conferma per categoria)**
+**Pulizia** (Pulizia intelligente: si spunta ogni categoria, poi una conferma finale con elenco e totale)
 
 | Categoria | Operazione | Blocchi |
 |---|---|---|
@@ -76,13 +76,13 @@ Metodo di rimozione: **Sposta nel Cestino** (predefinito, reversibile) oppure **
 
 ## Regole di sicurezza
 
-- All'avvio l'app è sempre in **modalità solo analisi**. La pulizia si abilita per la sola sessione, con una conferma.
+- L'app parte sempre in **sola analisi**: nessuna categoria è preselezionata. Spuntare una categoria è la sua conferma esplicita; la pulizia parte solo dopo la conferma finale, che elenca categorie, stime e metodo.
 - Sono rimovibili solo i **figli diretti** delle radici in allowlist, mai le radici stesse. `~/Library/Caches`, `~/.gradle`, `~/.pnpm-store`, `~/Library/Developer`, `~/Library/Application Support` e la home non sono mai bersagli, nemmeno tramite un antenato.
 - Le **aree protette prevalgono** su qualsiasi regola: WhatsApp, Application Support, Containers e Group Containers, Archives, Xcode UserData, CoreSimulator, MobileDevice, portachiavi, iCloud Drive, Mail, Messaggi, Preferenze, Android, store pnpm, configurazione/JDK/wrapper Gradle, `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`, `.config`, Cestino, Documenti, Scrivania, Download, Immagini, Filmati, Musica, Pubblica.
 - Prima di **ogni** elemento: nuova validazione di regola e categoria; percorso assoluto senza `.`/`..`/`~`; nessun componente symlink dalla home al bersaglio (verifica con `lstat`); stesso volume della radice; solo file o cartelle regolari; nome non escluso.
 - Ispezione del contenuto: un repository Git (`.git` o repository bare), `.xcarchive`, `.ipa`, `.p12`, `.cer`, `.provisionprofile`, `.mobileprovision` (ammesso solo in DerivedData, dove Xcode ne crea copie `embedded`), `.keychain`/`.keychain-db`, elementi non leggibili o punti di mount fanno **saltare** l'elemento.
 - Rimozione con file descriptor e `O_NOFOLLOW`: un symlink inserito durante l'operazione non porta mai fuori dall'elemento validato; dei link interni si rimuove il nome, mai la destinazione.
-- Si eliminano solo elementi presenti nel riepilogo confermato: ciò che compare dopo la scansione non viene toccato.
+- Si eliminano solo elementi presenti nell'analisi confermata: ciò che compare dopo l'analisi non viene toccato.
 - Se l'elenco dei processi non è affidabile, le operazioni che lo richiedono vengono saltate.
 - Nessun privilegio di amministratore, nessun tentativo di aggirare TCC/SIP.
 - I comandi esterni sono un insieme chiuso (`AllowedCommand`) con argomenti fissi e nessuna shell; l'eseguibile deve avere il nome atteso.
@@ -108,13 +108,13 @@ Anche senza sandbox, macOS protegge alcuni dati con TCC:
 - **Cache JetBrains** escluse di proposito: in `~/Library/Caches/JetBrains/*` c'è anche la *Local History*, che è un dato dell'utente.
 - **SwiftPM** (`~/Library/Caches/org.swift.swiftpm`) escluso: contiene repository Git (mirror). Esiste il comando ufficiale `swift package purge-cache`.
 - **Dynamic Type**: su macOS il ridimensionamento del testo di sistema è limitato. L'interfaccia usa solo stili tipografici semantici.
-- **Istantanee di verifica** (solo build Debug): l'app percorre le schermate fino al riepilogo della pulizia, senza mai eseguirla, e le cattura con `screencapture`:
+- **Istantanee di verifica** (solo build Debug): l'app percorre le schermate fino alla conferma finale, senza mai eseguire la pulizia (lo stato "esito" usa dati d'esempio), e le cattura con `screencapture`:
 
 ```bash
 /path/to/MacCare.app/Contents/MacOS/MacCare -MacCareSnapshotDir /tmp/shots -MacCareScanOnLaunch -MacCareDark
 ```
 
-  La modalità esegue un'analisi reale in sola lettura e registra nel log l'analisi e l'abilitazione di sessione.
+  La modalità esegue un'analisi reale in sola lettura e registra nel log solo l'analisi.
 
 ## Test
 

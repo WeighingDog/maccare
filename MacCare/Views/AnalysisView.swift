@@ -27,13 +27,19 @@ struct AnalysisView: View {
                             .actionButtonStyle(.primary)
                     }
                 }
-            } else if mode == .categories {
-                categoriesTable
             } else {
-                LargeDirectoriesTable()
+                VStack(spacing: 0) {
+                    SpaceHeader()
+                    Divider()
+                    if mode == .categories {
+                        categoriesTable
+                    } else {
+                        LargeDirectoriesTable()
+                    }
+                }
             }
         }
-        .navigationTitle("Analisi")
+        .navigationTitle("Spazio")
         .onChange(of: selection) { _, newValue in
             if newValue != nil { showsInspector = true }
         }
@@ -82,7 +88,7 @@ struct AnalysisView: View {
             TableColumn("Nome", value: \.title) { row in
                 HStack(spacing: Spacing.xs) {
                     if let symbol = row.symbol {
-                        IconTile(symbol: symbol, tint: row.categoryID.tint, size: 20)
+                        CategorySymbol(symbol: symbol)
                     }
                     Text(row.title)
                         .lineLimit(1)
@@ -120,6 +126,42 @@ struct AnalysisView: View {
                 model.openCategory(categoryID)
             }
         }
+    }
+}
+
+/// Barra del disco sopra la tabella, come in Impostazioni › Spazio.
+private struct SpaceHeader: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if let volume = model.volume {
+            let segments = segments(volume)
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(volume.name).font(.headline)
+                    Spacer()
+                    Text("\(volume.usedBytes.formattedBytes) di \(volume.totalBytes.formattedBytes) utilizzati")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                StorageBar(segments: segments, totalBytes: volume.totalBytes)
+                StorageLegend(segments: segments)
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
+        }
+    }
+
+    private func segments(_ volume: VolumeSnapshot) -> [StorageBar.Segment] {
+        let recoverable = model.recoverableBytes
+        let protected = model.protectedBytes
+        let other = max(0, model.analyzedBytes - recoverable - protected)
+        return [
+            .init(id: "recoverable", title: "Recuperabile", bytes: recoverable, color: Palette.recoverable),
+            .init(id: "protected", title: "Protetto", bytes: protected, color: Palette.neutralStrong),
+            .init(id: "analyzed", title: "Altro analizzato", bytes: other, color: Palette.neutral),
+            .init(id: "rest", title: "Non analizzato", bytes: max(0, volume.usedBytes - model.analyzedBytes), color: Palette.neutralWeak),
+        ]
     }
 }
 

@@ -25,7 +25,8 @@ struct CategoryDetailForm: View {
         Form {
             Section {
                 HStack(spacing: Spacing.sm) {
-                    IconTile(symbol: category.symbol, tint: category.id.tint, size: compact ? 32 : 40)
+                    CategorySymbol(symbol: category.symbol, font: compact ? .title2 : .largeTitle)
+                        .frame(width: compact ? 32 : 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(category.title).font(compact ? .headline : .title3.weight(.semibold))
                         Text(category.summary)

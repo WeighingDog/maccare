@@ -9,43 +9,28 @@ enum Spacing {
     static let lg: CGFloat = 20
     static let xl: CGFloat = 24
     static let xxl: CGFloat = 32
+    static let xxxl: CGFloat = 48
 }
 
-// MARK: - Colori semantici
-
-extension SafetyLevel {
-    var tint: Color {
-        switch self {
-        case .recreatable: .green
-        case .redownload: .blue
-        case .analysisOnly: .secondary
-        case .protected: .orange
-        }
-    }
-}
-
-extension CategoryID {
-    /// Colore dell'icona della categoria (stile icone di Impostazioni di Sistema).
-    var tint: Color {
-        switch self {
-        case .appCaches: .teal
-        case .xcodeDerivedData: .blue
-        case .gradleCaches: .green
-        case .pnpmStore: .orange
-        case .simulators: .indigo
-        case .largeDirectories: .gray
-        case .whatsappMedia: .green
-        case .applicationSupport: .purple
-        case .libraryCaches: .cyan
-        case .libraryDeveloper: .blue
-        case .xcodeArchives: .brown
-        case .android: .mint
-        }
-    }
+/// Palette volutamente sobria: il colore d'accento di sistema per ciò che è recuperabile,
+/// toni neutri per tutto il resto, arancione e rosso solo per avvisi ed errori.
+enum Palette {
+    static let recoverable = Color.accentColor
+    static let neutralStrong = Color.primary.opacity(0.42)
+    static let neutral = Color.primary.opacity(0.22)
+    static let neutralWeak = Color.primary.opacity(0.10)
+    static let track = Color.primary.opacity(0.07)
+    static let warning = Color.orange
 }
 
 extension PathClassification {
-    var tint: Color { safetyLevel.tint }
+    /// Solo le classificazioni che richiedono attenzione hanno un colore.
+    var tint: Color {
+        switch self {
+        case .cleanableItem, .insideCleanableItem: .accentColor
+        default: .secondary
+        }
+    }
 }
 
 // MARK: - Liquid Glass solo sui controlli
@@ -78,6 +63,22 @@ struct ActionButtonStyleModifier: ViewModifier {
 extension View {
     func actionButtonStyle(_ prominence: ActionProminence) -> some View {
         modifier(ActionButtonStyleModifier(prominence: prominence))
+    }
+
+    /// Contenitore "lista raggruppata": fondo dei controlli e bordo sottile, come le liste di sistema.
+    func groupedContainer(cornerRadius: CGFloat = 10) -> some View {
+        background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            }
+    }
+}
+
+extension Animation {
+    /// Animazione che rispetta "Riduci movimento" (empathy-reduce-motion).
+    static func adaptive(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.35)
     }
 }
 

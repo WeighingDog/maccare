@@ -1,29 +1,27 @@
 import SwiftUI
 
-/// Icona in un quadrato arrotondato a colore pieno, come nelle Impostazioni di Sistema.
-struct IconTile: View {
+/// Simbolo monocromatico di categoria, come le icone di Finder e Impostazioni.
+struct CategorySymbol: View {
     let symbol: String
-    let tint: Color
-    var size: CGFloat = 24
+    var font: Font = .body
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: size * 0.55, weight: .medium))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(tint.gradient, in: .rect(cornerRadius: size * 0.24, style: .continuous))
+            .font(font)
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(.secondary)
+            .frame(minWidth: 20)
             .accessibilityHidden(true)
     }
 }
 
-/// Livello di sicurezza come testo colorato con simbolo (nessuna capsula).
+/// Livello di sicurezza come testo secondario con simbolo.
 struct SafetyLabel: View {
     let level: SafetyLevel
 
     var body: some View {
         Label(level.title, systemImage: level.symbol)
-            .font(.callout)
-            .foregroundStyle(level.tint)
+            .foregroundStyle(.secondary)
             .help(level.explanation)
             .accessibilityLabel("Sicurezza: \(level.title)")
     }
@@ -35,22 +33,20 @@ struct ClassificationLabel: View {
 
     var body: some View {
         Text(classification.title)
-            .font(.callout)
             .foregroundStyle(classification.tint)
     }
 }
 
-/// Riga con icona, titolo e sottotitolo di una riga.
+/// Riga con simbolo, titolo e sottotitolo di una riga.
 struct CategoryLabel: View {
     let title: String
     let subtitle: String?
     let symbol: String
-    let tint: Color
     var subtitleStyle: Color = .secondary
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
-            IconTile(symbol: symbol, tint: tint)
+            CategorySymbol(symbol: symbol)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 if let subtitle {
@@ -61,6 +57,44 @@ struct CategoryLabel: View {
                 }
             }
         }
+    }
+}
+
+/// Anello del disco: spazio occupato in tono neutro, la parte recuperabile nel colore d'accento.
+/// Con `progress` diventa un indicatore di avanzamento.
+struct DiskRing<Center: View>: View {
+    var usedFraction: Double = 0
+    var highlightFraction: Double = 0
+    var progress: Double?
+    var diameter: CGFloat = 220
+    var lineWidth: CGFloat = 12
+    @ViewBuilder var center: Center
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Palette.track, lineWidth: lineWidth)
+            if let progress {
+                arc(from: 0, to: max(0.004, min(1, progress)), color: Palette.recoverable, cap: .round)
+            } else {
+                let used = min(1, max(0, usedFraction))
+                let highlight = min(used, max(0, highlightFraction))
+                arc(from: 0, to: used - highlight, color: Palette.neutral, cap: .butt)
+                if highlight > 0 {
+                    arc(from: used - highlight, to: used, color: Palette.recoverable, cap: .butt)
+                }
+            }
+            center
+        }
+        .frame(width: diameter, height: diameter)
+        .padding(lineWidth / 2)
+    }
+
+    private func arc(from: Double, to: Double, color: Color, cap: CGLineCap) -> some View {
+        Circle()
+            .trim(from: from, to: max(from, to))
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: cap))
+            .rotationEffect(.degrees(-90))
     }
 }
 
@@ -75,7 +109,7 @@ struct StorageBar: View {
 
     let segments: [Segment]
     let totalBytes: Int64
-    var height: CGFloat = 12
+    var height: CGFloat = 10
 
     var body: some View {
         GeometryReader { proxy in
@@ -91,7 +125,7 @@ struct StorageBar: View {
             }
         }
         .frame(height: height)
-        .background(.quaternary)
+        .background(Palette.track)
         .clipShape(.rect(cornerRadius: 3, style: .continuous))
         .accessibilityElement()
         .accessibilityLabel("Utilizzo dello spazio")
@@ -99,17 +133,17 @@ struct StorageBar: View {
     }
 }
 
-/// Legenda compatta della barra.
+/// Legenda compatta della barra, con i valori.
 struct StorageLegend: View {
     let segments: [StorageBar.Segment]
 
     var body: some View {
-        HStack(spacing: Spacing.md) {
-            ForEach(segments) { segment in
-                HStack(spacing: Spacing.xxs) {
-                    Circle().fill(segment.color).frame(width: 8, height: 8)
-                    Text(segment.title)
-                        .foregroundStyle(.secondary)
+        HStack(spacing: Spacing.lg) {
+            ForEach(segments.filter { $0.bytes > 0 }) { segment in
+                HStack(spacing: Spacing.xxs + 2) {
+                    RoundedRectangle(cornerRadius: 2).fill(segment.color).frame(width: 10, height: 10)
+                    Text(segment.title).foregroundStyle(.secondary)
+                    Text(segment.bytes.formattedBytes).monospacedDigit()
                 }
                 .accessibilityElement(children: .combine)
             }

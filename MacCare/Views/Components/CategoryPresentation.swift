@@ -11,28 +11,38 @@ extension AppModel {
     func estimateText(for category: CleanupCategory) -> String {
         switch estimate(for: category) {
         case .bytes(let bytes): bytes.formattedBytes
-        case .determinedByTool: "Calcolato da pnpm"
+        case .determinedByTool: "Stima di pnpm"
         case .none: "—"
         }
     }
 
-    /// Sottotitolo di una riga: il problema più rilevante, altrimenti il livello di sicurezza.
+    /// Sottotitolo di una riga: il problema più rilevante, altrimenti cosa succede pulendo.
     func statusLine(for category: CleanupCategory) -> (text: String, color: Color) {
         let blockers = knownBlockers(for: category)
         if !blockers.isEmpty {
-            return ("In uso: \(blockers.joined(separator: ", "))", .orange)
+            return ("In uso: \(blockers.joined(separator: ", "))", Palette.warning)
         }
         if case .denied = measurements[category.locations.first?.path ?? ""]?.state {
-            return ("Accesso negato da macOS", .orange)
+            return ("Accesso negato da macOS", Palette.warning)
         }
         switch availability(for: category) {
-        case .unavailable(let reason):
-            return (reason, .secondary)
-        case .notApplicable:
-            return (category.safety.title, .secondary)
-        case .available, .analysisMode:
-            let count = plannedRemovals(for: category).count
-            return (count > 0 ? "\(category.safety.title) · \(count) elementi" : category.safety.title, .secondary)
+        case .unavailable(let reason), .notApplicable(let reason):
+            let trimmed = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
+            return (trimmed, .secondary)
+        case .available:
+            return (shortConsequence(for: category), .secondary)
+        }
+    }
+
+    /// Conseguenza della pulizia in poche parole.
+    func shortConsequence(for category: CleanupCategory) -> String {
+        switch category.id {
+        case .appCaches: "Le app ricreano la cache al prossimo avvio"
+        case .xcodeDerivedData: "La prossima build sarà completa"
+        case .gradleCaches: "Le prossime build Gradle saranno più lente"
+        case .pnpmStore: "Rimuove solo i pacchetti non usati"
+        case .simulators: "Elimina i simulatori senza runtime"
+        default: category.safety.title
         }
     }
 

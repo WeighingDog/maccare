@@ -135,6 +135,6 @@ struct VolumeSnapshot: Sendable, Equatable {
 extension Int64 {
     /// Formato coerente con il Finder (base 1000).
     var formattedBytes: String {
-        formatted(.byteCount(style: .file))
+        formatted(.byteCount(style: .file, spellsOutZero: false))
     }
 }

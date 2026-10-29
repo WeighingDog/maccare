@@ -10,7 +10,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
         } detail: {
             NavigationStack(path: $model.detailPath) {
-                destination(for: model.selection ?? .overview)
+                destination(for: model.selection ?? .smartClean)
                     .navigationDestination(for: CategoryID.self) { id in
                         CleanupCategoryView(categoryID: id)
                     }
@@ -21,18 +21,13 @@ struct ContentView: View {
                 ScanToolbarButton()
             }
         }
-        .sheet(isPresented: $model.showsCleanupFlow) {
-            CleanupFlowSheet()
-                .environment(model)
-        }
     }
 
     @ViewBuilder
     private func destination(for item: SidebarItem) -> some View {
         switch item {
-        case .overview: StorageDashboardView()
-        case .analysis: AnalysisView()
-        case .cleanup: CleanupView()
+        case .smartClean: SmartCleanView()
+        case .space: AnalysisView()
         case .development: DevelopmentView()
         case .activity: ActivityView()
         }
@@ -47,7 +42,7 @@ struct SidebarView: View {
         List(selection: $model.selection) {
             ForEach(SidebarItem.allCases) { item in
                 Label(item.title, systemImage: item.symbol)
-                    .badge(item == .cleanup ? model.pendingConfirmationCount : 0)
+                    .badge(item == .smartClean ? model.pendingConfirmationCount : 0)
                     .tag(item)
             }
         }
@@ -64,11 +59,8 @@ private struct SidebarFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xxs) {
-            Label(model.cleanupEnabledThisSession ? "Pulizia consentita" : "Solo analisi",
-                  systemImage: model.cleanupEnabledThisSession ? "lock.open" : "lock")
-                .foregroundStyle(model.cleanupEnabledThisSession ? .orange : .secondary)
             Text(scanText)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
         .font(.callout)
