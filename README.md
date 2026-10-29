@@ -59,6 +59,7 @@ MacCareTests/ test di policy, classificazione, scanner, rimozione, manager, coma
 - Misura di: cache verificate, `~/Library/Caches` (totale e sottocartelle), `~/Library/Developer` (DerivedData, Archives, CoreSimulator, iOS DeviceSupport), `~/Library/Application Support`, media WhatsApp, `~/.android`, `~/Library/Android/sdk`, `~/.gradle` (e `caches/*`), store pnpm (`pnpm store path`, `~/Library/pnpm/store`, `~/.pnpm-store`), `~/Library/Logs`, cartelle nascoste della home (escluse quelle con credenziali), opzionalmente `~/Library/Containers` e `~/Library/Group Containers`.
 - Per ogni percorso: spazio allocato, dimensione apparente, file e cartelle, hard link duplicati, symlink non seguiti, elementi non leggibili, scomposizione per sottocartella con la classificazione della policy.
 - Elenco dei simulatori (`xcrun simctl list devices --json`) con dimensione per dispositivo.
+- **Dati di sistema** (solo analisi): runtime dei simulatori con stato e ultimo uso (`xcrun simctl runtime list -j`), segnalando quelli bloccati "In eliminazione"; `/System/Library/AssetsV2` (runtime, Siri, Apple Intelligence, documentazione); cache di CoreSimulator; swap (`sysctl vm.swapusage`); volumi APFS del disco di avvio (`diskutil apfs list -plist`); istantanee locali (`tmutil listlocalsnapshots /`). Tutto ciò che è fuori dalla home è classificato come protetto e non è mai rimovibile.
 - Rilevamento di pnpm (versione, eseguibile, store) e dei processi attivi (Xcode, build, Simulator, Gradle, Android Studio, pnpm).
 
 **Pulizia** (Pulizia intelligente: si spunta ogni categoria, poi una conferma finale con elenco e totale)
@@ -118,13 +119,14 @@ Anche senza sandbox, macOS protegge alcuni dati con TCC:
 
 ## Test
 
-57 test con Swift Testing, eseguiti su home finte create in directory temporanee (`MacCareTests-<UUID>`); nessun dato reale viene letto o modificato. Coprono:
+65 test con Swift Testing, eseguiti su home finte create in directory temporanee (`MacCareTests-<UUID>`); nessun dato reale viene letto o modificato. Coprono:
 
 - **SafetyPolicy**: figli diretti consentiti; rifiuto di radici, nipoti, `..`, regole sconosciute o di altra categoria, percorsi fuori dalla home, figli symlink, radici symlink (con verifica che la destinazione resti intatta), elementi spariti, nomi esclusi; prevalenza delle aree protette (WhatsApp) anche con una regola errata; contenitori mai rimovibili; coerenza delle regole standard.
 - **Classificazione**: WhatsApp e altri 15 percorsi protetti; contenitori; radici ed elementi autorizzati; cache non verificate e dati Gradle gestiti da Gradle come sola diagnostica; categorie distruttive vincolate alla allowlist; pnpm e simulatori senza rimozione diretta di file; store pnpm fuori dalla home ignorato; totali senza doppi conteggi.
 - **SafeRemover**: rimozione di un albero che contiene symlink verso file e cartelle esterni (le destinazioni restano); rilevamento di repository Git normali e bare, archivi, certificati e portachiavi; copie `embedded.mobileprovision` ammesse solo in DerivedData; hard link non contati come spazio liberato.
 - **StorageScanner**: misure annidate in un'unica visita; symlink non seguiti; hard link contati una volta; percorsi assenti e non leggibili; cancellazione; sola lettura (date di modifica invariate); cartelle con credenziali escluse.
 - **CleanupManager**: elementi confermati eliminati e registrati; categoria non confermata saltata; Xcode aperto, build in corso, daemon Gradle o elenco processi non affidabile → saltato; elemento sostituito da symlink dopo la scansione → saltato; elementi contraffatti fuori allowlist rifiutati; simulatori senza consenso → nessun comando; pnpm con versione cambiata → nessun prune.
+- **Dati di sistema**: parsing di runtime, volumi APFS, istantanee e swap; percorsi di sistema sempre protetti; categoria solo analisi.
 - **Supporto**: argomenti fissi dei comandi; eseguibile inatteso rifiutato; versioni semantiche; riconoscimento dei processi; parsing di simctl; registro persistente limitato, con permessi 0600 e solo campi di metadati.
 
 Non coperti dai test automatici: lo spostamento nel Cestino (finirebbe nel Cestino reale), l'esecuzione reale di `pnpm store prune` e di `simctl delete unavailable`, e qualsiasi pulizia sui dati reali.

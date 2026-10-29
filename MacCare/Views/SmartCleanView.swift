@@ -155,6 +155,9 @@ private struct ResultsState: View {
             hero
             MetricsStrip()
             CategoryList()
+            if !model.systemInsights.isEmpty {
+                SystemInsightsList()
+            }
             actionBar
         }
     }
@@ -339,6 +342,45 @@ private struct CategoryRow: View {
         .onTapGesture { if selectable && !model.isCleaning { model.toggleSelection(category.id) } }
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Anomalie nei Dati di sistema: non si puliscono da qui, si spiega come intervenire.
+private struct SystemInsightsList: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let insights = model.systemInsights
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Dati di sistema")
+                .font(.headline)
+                .padding(.leading, Spacing.xxs)
+            VStack(spacing: 0) {
+                ForEach(Array(insights.enumerated()), id: \.element.id) { index, insight in
+                    HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Palette.warning)
+                            .frame(width: 24)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(insight.title).monospacedDigit()
+                            Text(insight.detail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: Spacing.sm)
+                        Button("Dettagli") { model.openCategory(.systemData) }
+                            .buttonStyle(.link)
+                    }
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .accessibilityElement(children: .combine)
+                    if index < insights.count - 1 { Divider().padding(.leading, 52) }
+                }
+            }
+            .groupedContainer()
+        }
     }
 }
 

@@ -100,6 +100,27 @@ private struct SimulatorsSection: View {
             if let category = model.category(.simulators) {
                 CategoryLinkRow(category: category)
             }
+            if let data = model.systemData, data.runtimesAvailable {
+                Button {
+                    model.openCategory(.systemData)
+                } label: {
+                    LabeledContent {
+                        Text(data.runtimeBytes.formattedBytes)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        CategoryLabel(
+                            title: "Runtime installati",
+                            subtitle: data.stuckRuntimes.isEmpty
+                                ? "\(data.runtimes.count) runtime · nei Dati di sistema"
+                                : "\(data.stuckRuntimes.count) bloccati in eliminazione",
+                            symbol: "square.stack.3d.up",
+                            subtitleStyle: data.stuckRuntimes.isEmpty ? .secondary : Palette.warning
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+            }
             if let inventory = model.simulatorInventory {
                 let devices = sortedDevices(inventory)
                 ForEach(showsAll ? devices : Array(devices.prefix(6)), id: \.device.udid) { entry in

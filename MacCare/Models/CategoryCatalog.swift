@@ -3,6 +3,8 @@ import Foundation
 /// Informazioni dinamiche raccolte prima della scansione.
 struct CatalogContext: Sendable {
     let policy: SafetyPolicy
+    /// Radice del sistema (sostituibile nei test).
+    var systemRoot = URL(fileURLWithPath: "/", isDirectory: true)
     var pnpmStorePath: URL?
     var homeDotDirectories: [URL] = []
     var includeOtherAppContainers = false
@@ -158,6 +160,30 @@ enum CategoryCatalog {
             section: .diagnostic,
             locations: diagnostic,
             action: .none(reason: "Solo diagnostica")
+        ))
+
+        // Dati di sistema (gestiti da macOS: solo analisi)
+        func system(_ path: String) -> URL { context.systemRoot.appendingPathComponent(path, isDirectory: true) }
+        result.append(CleanupCategory(
+            id: .systemData,
+            title: "Dati di sistema",
+            symbol: "gearshape.2",
+            summary: "Runtime dei simulatori, risorse di macOS, swap e volumi di sistema.",
+            details: "Parte di ciò che Impostazioni › Spazio chiama «Dati di sistema». Sono file gestiti da macOS e da Xcode: MacCare li misura e indica come intervenire con gli strumenti ufficiali (Xcode › Impostazioni › Componenti, riavvio), ma non li modifica mai. Alcune cartelle di sistema non sono leggibili senza privilegi: la misura può essere per difetto.",
+            risks: [
+                "Rimuovere a mano runtime o risorse di sistema può rendere inutilizzabili Xcode o funzioni di macOS.",
+                "Lo swap si riduce chiudendo app o riavviando, non cancellando file.",
+            ],
+            safety: .protected,
+            section: .diagnostic,
+            locations: [
+                LocationSpec(id: "sys.assets", title: "Risorse scaricate da macOS (AssetsV2)", url: system("System/Library/AssetsV2"), kind: .protected, wantsBreakdown: true,
+                             note: "Include i runtime dei simulatori scaricati da Xcode, i modelli di Siri e Apple Intelligence e la documentazione."),
+                LocationSpec(id: "sys.simCaches", title: "Cache dei runtime dei simulatori", url: system("Library/Developer/CoreSimulator/Caches"), kind: .protected, wantsBreakdown: true,
+                             note: "Ricreate automaticamente dal sistema quando servono."),
+                LocationSpec(id: "sys.vm", title: "Swap e immagine di sospensione", url: system("private/var/vm"), kind: .protected, wantsBreakdown: true),
+            ],
+            action: .none(reason: "Gestiti da macOS: solo analisi")
         ))
 
         // Categorie protette o di sola analisi

@@ -39,6 +39,9 @@ enum AllowedCommand: Sendable, Hashable {
     case pnpmStorePrune
     case simctlListDevices
     case simctlDeleteUnavailable
+    case simctlRuntimeList
+    case diskutilAPFSList
+    case tmutilLocalSnapshots
     case processList(columns: ProcessColumns)
     case loginShellPath
 
@@ -57,6 +60,9 @@ enum AllowedCommand: Sendable, Hashable {
         case .pnpmStorePrune: ["store", "prune"]
         case .simctlListDevices: ["simctl", "list", "devices", "--json"]
         case .simctlDeleteUnavailable: ["simctl", "delete", "unavailable"]
+        case .simctlRuntimeList: ["simctl", "runtime", "list", "-j"]
+        case .diskutilAPFSList: ["apfs", "list", "-plist"]
+        case .tmutilLocalSnapshots: ["listlocalsnapshots", "/"]
         case .processList(let columns): ["-A", "-ww", "-o", columns.rawValue]
         case .loginShellPath:
             ["-l", "-i", "-c", "printf '%s%s%s' '\(Self.pathMarkerStart)' \"$PATH\" '\(Self.pathMarkerEnd)'"]
@@ -67,7 +73,9 @@ enum AllowedCommand: Sendable, Hashable {
     var allowedExecutableNames: Set<String> {
         switch self {
         case .pnpmVersion, .pnpmStorePath, .pnpmStorePrune: ["pnpm"]
-        case .simctlListDevices, .simctlDeleteUnavailable: ["xcrun"]
+        case .simctlListDevices, .simctlDeleteUnavailable, .simctlRuntimeList: ["xcrun"]
+        case .diskutilAPFSList: ["diskutil"]
+        case .tmutilLocalSnapshots: ["tmutil"]
         case .processList: ["ps"]
         case .loginShellPath: ["zsh", "bash"]
         }

@@ -260,7 +260,8 @@ struct SafetyPolicy: Sendable {
     func classify(_ url: URL) -> PathClassification {
         guard case .success(let comps) = Self.normalizedComponents(of: url) else { return .unclassified }
         guard hasPrefix(comps, homeComponents), comps.count > homeComponents.count else {
-            return comps == homeComponents ? .container : .unclassified
+            // Fuori dalla home: file di sistema o di altri utenti, mai modificabili.
+            return comps == homeComponents ? .container : .protected(reason: "file di sistema")
         }
         for area in protectedAreas where hasPrefix(comps, components(relative: area.relativePath)) {
             return .protected(reason: area.reason)

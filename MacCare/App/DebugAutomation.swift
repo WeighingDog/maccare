@@ -38,6 +38,10 @@ enum DebugAutomation {
             try? await Task.sleep(for: .seconds(1.2))
             capture(directory, "20-detail-derivedData")
             model.detailPath = NavigationPath()
+            model.openCategory(.systemData)
+            try? await Task.sleep(for: .seconds(1.2))
+            capture(directory, "20b-detail-systemData")
+            model.detailPath = NavigationPath()
 
             // Selezione e conferma finale, senza eseguire nulla.
             if let first = model.actionableCategories.first(where: { model.isSelectable($0) }) {

@@ -109,6 +109,7 @@ final class AppModel {
     private(set) var simulatorInventory: SimulatorInventory?
     private(set) var xcodeCustomDerivedDataLocation: String?
     private(set) var runningSnapshot: RunningSoftwareSnapshot?
+    private(set) var systemData: SystemDataSnapshot?
     private var scanTask: Task<Void, Never>?
 
     // Pulizia. Nessuna categoria è mai preselezionata: spuntarla è la conferma esplicita
@@ -275,6 +276,43 @@ final class AppModel {
         categories.filter { $0.action.isDestructive }
     }
 
+    // MARK: - Avvisi sui Dati di sistema
+
+    struct SystemInsight: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let detail: String
+    }
+
+    /// Situazioni anomale da segnalare nella home, con l'intervento consigliato.
+    var systemInsights: [SystemInsight] {
+        guard let systemData else { return [] }
+        var insights: [SystemInsight] = []
+        let stuck = systemData.stuckRuntimes
+        if !stuck.isEmpty {
+            insights.append(SystemInsight(
+                id: "stuckRuntimes",
+                title: "\(systemData.stuckRuntimeBytes.formattedBytes) bloccati in runtime dei simulatori",
+                detail: "\(stuck.map(\.name).joined(separator: ", ")) \(stuck.count == 1 ? "è" : "sono") in eliminazione ma occupa\(stuck.count == 1 ? "" : "no") ancora spazio. Riavvia il Mac per completare l'eliminazione."
+            ))
+        }
+        if let used = systemData.swapUsedBytes, used >= SystemDataInspector.swapWarningBytes {
+            insights.append(SystemInsight(
+                id: "swap",
+                title: "\(used.formattedBytes) di swap in uso",
+                detail: "La memoria è sotto pressione: chiudere le app che non usi o riavviare libera questo spazio."
+            ))
+        }
+        if let count = systemData.localSnapshotCount, count > 0 {
+            insights.append(SystemInsight(
+                id: "snapshots",
+                title: "\(count) \(count == 1 ? "istantanea locale" : "istantanee locali") di Time Machine",
+                detail: "macOS le elimina da solo quando serve spazio."
+            ))
+        }
+        return insights
+    }
+
     // MARK: - Diagnostica
 
     func largeDirectories(limit: Int = 40) -> [LargeDirectory] {
@@ -302,6 +340,9 @@ final class AppModel {
 
     /// Nome leggibile di un figlio (es. UDID di un simulatore → nome del dispositivo).
     func displayName(forChild name: String, of location: LocationSpec) -> String {
+        if location.id == "sys.assets" {
+            return SystemDataInspector.friendlyAssetName(name)
+        }
         if location.id == "sim.devices", let device = simulatorInventory?.device(udid: name) {
             return "\(device.name) · \(device.runtimeName)"
         }
@@ -328,6 +369,7 @@ final class AppModel {
         async let pnpm = DevToolsInspector.inspectPnpm(home: policy.home, useLoginShell: settings.useLoginShellPath)
         async let simulators = DevToolsInspector.inspectSimulators()
         async let running = probe.snapshot()
+        async let system = SystemDataInspector.inspect()
         let dotDirectories = DevToolsInspector.homeDotDirectories(home: policy.home, excluding: CategoryCatalog.dotDirectoriesExcludedFromDiagnostics)
         let customDerivedData = DevToolsInspector.xcodeCustomDerivedDataLocation()
 
@@ -339,6 +381,7 @@ final class AppModel {
         pnpmStatus = pnpmResult
         simulatorInventory = simulatorResult
         runningSnapshot = runningResult
+        systemData = await system
         xcodeCustomDerivedDataLocation = customDerivedData
 
         let context = CatalogContext(

@@ -41,6 +41,10 @@ struct CategoryDetailForm: View {
                 LabeledContent("Analisi", value: model.measurementStateText(for: category))
             }
 
+            if category.id == .systemData {
+                SystemDataSections(compact: compact)
+            }
+
             ActionSection(category: category)
 
             Section {
@@ -214,5 +218,66 @@ private struct ChildRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+    }
+}
+
+/// Componenti dei Dati di sistema che non sono semplici cartelle: runtime, swap, volumi, istantanee.
+private struct SystemDataSections: View {
+    @Environment(AppModel.self) private var model
+    let compact: Bool
+
+    var body: some View {
+        if let data = model.systemData {
+            Section {
+                if data.runtimes.isEmpty {
+                    Text(data.runtimesAvailable ? "Nessun runtime installato" : "simctl non disponibile")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(data.runtimes) { runtime in
+                    LabeledContent {
+                        Text(runtime.sizeBytes.formattedBytes).monospacedDigit()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(runtime.name) (\(runtime.build))")
+                            Text(runtimeSubtitle(runtime))
+                                .font(.callout)
+                                .foregroundStyle(runtime.isStuckDeleting ? Palette.warning : .secondary)
+                        }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Runtime dei simulatori")
+                    Spacer()
+                    Text(data.runtimeBytes.formattedBytes).monospacedDigit()
+                }
+            } footer: {
+                if !data.stuckRuntimes.isEmpty {
+                    Text("I runtime «In eliminazione» occupano ancora spazio. Riavvia il Mac; se restano, rimuovili da Xcode › Impostazioni › Componenti. Controllo da Terminale: `xcrun simctl runtime list`.")
+                } else if !compact {
+                    Text("Per rimuovere i runtime che non usi: Xcode › Impostazioni › Componenti.")
+                }
+            }
+
+            Section("Memoria e volumi") {
+                if let used = data.swapUsedBytes, let total = data.swapTotalBytes {
+                    LabeledContent("Swap in uso") {
+                        Text("\(used.formattedBytes) di \(total.formattedBytes)")
+                            .monospacedDigit()
+                            .foregroundStyle(used >= SystemDataInspector.swapWarningBytes ? Palette.warning : .secondary)
+                    }
+                }
+                LabeledContent("Istantanee locali", value: data.localSnapshotCount.map { "\($0)" } ?? "—")
+                ForEach(data.systemVolumes) { volume in
+                    LabeledContent(volume.title, value: volume.bytesInUse.formattedBytes)
+                }
+            }
+        }
+    }
+
+    private func runtimeSubtitle(_ runtime: SimulatorRuntime) -> String {
+        var parts = [runtime.stateTitle]
+        if let date = runtime.lastUsedAt { parts.append("usato \(date.relativeDescription)") }
+        return parts.joined(separator: " · ")
     }
 }

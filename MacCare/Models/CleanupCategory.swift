@@ -16,6 +16,7 @@ enum CategoryID: String, CaseIterable, Codable, Sendable, Identifiable {
     case libraryDeveloper
     case xcodeArchives
     case android
+    case systemData
 
     var id: String { rawValue }
 }
